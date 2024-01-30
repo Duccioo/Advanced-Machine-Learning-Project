@@ -862,6 +862,8 @@ class GCN_encoder(nn.Module):
         x = self.conv2(x,adj)
         # x = x / torch.sum(x, dim=2, keepdim=True)
         return x
+    
+    
 # vanilla GCN decoder
 class GCN_decoder(nn.Module):
     def __init__(self):

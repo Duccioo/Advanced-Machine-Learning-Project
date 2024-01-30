@@ -45,3 +45,5 @@ Per quanto riguarda il dataset (_QM9_), potete comodamente scaricarlo tramite il
 - [Hugging Face](https://huggingface.co/fusing/latent-diffusion-text2im-large)
 
 - [Diffusers](https://github.com/huggingface/diffusers)
+
+- [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)

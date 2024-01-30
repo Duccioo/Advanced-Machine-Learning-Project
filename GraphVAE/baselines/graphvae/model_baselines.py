@@ -11,6 +11,29 @@ import torch.nn.init as init
 import model as model
 
 
+# class GRAPH_latent(nn.Module):
+#     def __init__(self, input_dim, hidden_dim, latent_dim, max_num_nodes, pool="sum"):
+#         """
+#         Args:
+#             input_dim: input feature dimension for node.
+#             hidden_dim: hidden dim for 2-layer gcn.
+#             latent_dim: dimension of the latent representation of graph.
+#         """
+#         super(GraphVAE, self).__init__()
+#         self.encoder = model.GCN_encoder()
+
+#         self.latent_diffusion = None
+
+#         self.decoder = model.GCN_decoder()
+
+#     def forward(self, input, adj):
+#         x = self.encoder(input, adj)
+#         x = self.latent_diffusion(x)
+#         x = self.decoder(x, adj)
+
+#         return x
+
+
 class GraphVAE(nn.Module):
     def __init__(self, input_dim, hidden_dim, latent_dim, max_num_nodes, pool="sum"):
         """
