@@ -1,9 +1,8 @@
 # Advanced-Machine-Learning-Project
 
-Progetto che consisterebbe di realizzare una versione dei diffusion model che usa lo spazio latente.
-In pratica si trattrebbe di generare una rappresentare latente di un grafo, ad esempio usando graphVAE. Poi potremo provare a generare tale rappresentazione
-con un metodo a diffusione. Essendo lo stato latente un semplice vettore, la sua generazione è più semplice, ma il fatto che si debba comporre
-due metodi da vita ad una cosa un pò più complicata.
+> Progetto che consisterebbe nel realizzare una versione dei diffusion model che usa lo spazio latente.
+> In pratica si trattrebbe di generare una rappresentare latente di un grafo, ad esempio usando graphVAE. Poi potremo provare a generare tale rappresentazione
+> con un metodo a diffusione. Essendo lo stato latente un semplice vettore, la sua generazione è più semplice, ma il fatto che si debba comporre due metodi da vita ad una cosa >un pò più complicata.
 
 ## Models
 
@@ -16,12 +15,11 @@ due metodi da vita ad una cosa un pò più complicata.
 
   - [A Survey on Graph Diffusion Models: Generative AI in Science for Molecule, Protein and Material](https://arxiv.org/abs/2304.01565)
 
-  Poi vi metto il link all'articolo di GraphVAE che è il variational autoencoder
-  che dovrete usare per creare lo spazio latente.
+- GraphVAE model:
+
+  Link all'articolo di GraphVAE che è il variational autoencoder che dovrete usare per creare lo spazio latente:
 
   - [GraphVAE: Towards Generation of Small Graphs Using Variational Autoencoders](https://arxiv.org/abs/1802.03480)
-
-- GraphVAE model:
 
   Per il software, la repo GitHub che vi consiglio di usare è questa:
 
@@ -36,7 +34,7 @@ Per quanto riguarda il dataset (_QM9_), potete comodamente scaricarlo tramite il
 - [QM9 DataSet](https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.datasets.QM9.html)
 
   E' sufficiente includere questa riga tra le importazioni:
-`from pytorch_geometric.datasets import QM9`
+  `from pytorch_geometric.datasets import QM9`
 
 ## Resurces
 
