@@ -19,6 +19,7 @@ class GraphAdjSampler(torch.utils.data.Dataset):
                 self.feature_all.append(np.identity(max_num_nodes))
             elif features == 'deg':
                 degs = np.sum(np.array(adj), 1)
+
                 degs = np.expand_dims(np.pad(degs, [0, max_num_nodes - G.number_of_nodes()], 0),
                                       axis=1)
                 self.feature_all.append(degs)
@@ -56,3 +57,6 @@ class GraphAdjSampler(torch.utils.data.Dataset):
                 'adj_decoded':adj_vectorized, 
                 'features':self.feature_all[idx].copy()}
 
+
+if __name__ == "__main__":
+    dataset = GraphAdjSampler()

@@ -49,9 +49,16 @@ class GraphVAE(nn.Module):
         self.bn2 = nn.BatchNorm1d(input_dim)
         self.act = nn.ReLU()
 
+        self.max_number_features = 11
+
         output_dim = max_num_nodes * (max_num_nodes + 1) // 2
+        print("INPUT:", input_dim * input_dim, "OUTPUT:", output_dim)
         # self.vae = model.MLP_VAE_plain(hidden_dim, latent_dim, output_dim)
-        self.vae = model.MLP_VAE_plain(input_dim * input_dim, latent_dim, output_dim)
+        self.vae = model.MLP_VAE_plain(
+            input_dim * self.max_number_features,
+            latent_dim,
+            output_dim,
+        )
         # self.feature_mlp = model.MLP_plain(latent_dim, latent_dim, output_dim)
 
         self.max_num_nodes = max_num_nodes
@@ -69,6 +76,8 @@ class GraphVAE(nn.Module):
     def recover_adj_lower(self, l):
         # NOTE: Assumes 1 per minibatch
         adj = torch.zeros(self.max_num_nodes, self.max_num_nodes)
+        print(adj.shape)
+        print(torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)).shape)
         adj[torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1] = l
         return adj
 
@@ -160,14 +169,19 @@ class GraphVAE(nn.Module):
 
         # pool over all nodes
         # graph_h = self.pool_graph(x)
-        graph_h = input_features.view(-1, self.max_num_nodes * self.max_num_nodes)
+        # print("AAAAAAAAAAAAAAAAAAA ", adj)
+        print(input_features.shape)
+        # print(input_features)
+        graph_h = input_features.view(
+            -1, self.max_num_nodes * 11
+        )  # 11 features per node
         # vae
         h_decode, z_mu, z_lsgms = self.vae(graph_h)
         out = F.sigmoid(h_decode)
         out_tensor = out.cpu().data
         recon_adj_lower = self.recover_adj_lower(out_tensor)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-
+        # recon_adj_tensor = adj
         # set matching features be degree
         out_features = torch.sum(recon_adj_tensor, 1)
 
@@ -188,7 +202,7 @@ class GraphVAE(nn.Module):
         # init_assignment = torch.FloatTensor(4, 4)
         # init.uniform(init_assignment)
         assignment = self.mpm(init_assignment, S)
-        # print('Assignment: ', assignment)
+        print("Assignment: ", assignment)
 
         # matching
         # use negative of the assignment score since the alg finds min cost flow

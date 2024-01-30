@@ -12,6 +12,13 @@ import torch.nn.functional as F
 from torch import optim
 from torch.optim.lr_scheduler import MultiStepLR
 
+import random
+
+
+from torch_geometric.datasets import QM9
+from torch_geometric.utils import to_networkx
+
+# ---
 import data
 from model_baselines import GraphVAE
 from data import GraphAdjSampler
@@ -19,6 +26,129 @@ from data import GraphAdjSampler
 CUDA = 1
 
 LR_milestones = [500, 1000]
+
+
+def convert_to_networkx(graph, n_sample=None):
+    g = to_networkx(graph, node_attrs=["x"])
+    y = graph.y.numpy()[0]
+
+    # print(y)
+
+    # print(n_sample, g.nodes)
+
+    if n_sample is not None:
+        sampled_nodes = random.sample(g.nodes, n_sample)
+        g = g.subgraph(sampled_nodes)
+        y = y[sampled_nodes]
+
+    return g, y
+
+
+def show_qm9_graphs(dataset, num_graphs):
+    for i in range(num_graphs):
+        data = dataset[i]
+        edge_index = data.edge_index
+        edge_list = edge_index.T.tolist()
+        G = nx.Graph(edge_list)
+        pos = nx.spring_layout(G)
+        nx.draw(G, pos, with_labels=True)
+        plt.show()
+
+
+def plot_graph(g, y, label_dict, save=False, show=False):
+    name_file = "graph_CORA_basic.png"
+    if not os.path.exists(name_file):
+        #     plt.figure(figsize=(9, 7))
+        #     nx.draw_spring(g, node_size=30, arrows=False, node_color=y)
+        # --------
+        node_color = []
+        nodelist = [[], [], [], [], [], [], []]
+        colorlist = [
+            "#e41a1c",
+            "#377eb8",
+            "#4daf4a",
+            "#984ea3",
+            "#ff7f00",
+            "#ffff33",
+            "#a65628",
+        ]
+        labels = y
+        for n, i in enumerate(labels):
+            # print("prova", i)
+            node_color.append(colorlist[int(i)])
+            nodelist[int(i)].append(n)
+        pos = nx.spring_layout(g, seed=42)
+        plt.figure()
+        labellist = list(label_dict.values())
+        for num, i in enumerate(zip(nodelist, labellist)):
+            n, l = i[0], i[1]
+            nx.draw_networkx_nodes(
+                g, pos, nodelist=n, node_size=5, node_color=colorlist[num], label=l
+            )
+        nx.draw_networkx_edges(g, pos, width=0.05, arrowsize=5)
+        plt.legend(bbox_to_anchor=(1, 1), loc="upper left")
+        plt.tight_layout()
+
+        if save:
+            plt.savefig(name_file)
+        if show:
+            plt.show()
+
+
+def create_adj_list(dataset):
+    adj_list = []
+    for data in dataset:
+        edge_index = data.edge_index
+        edge_list = edge_index.T.tolist()
+        G = nx.Graph(edge_list)
+        adj = nx.adjacency_matrix(G)
+        adj_list.append({"adj": np.array(adj.todense())})
+    return adj_list
+
+
+def create_graph_list(dataset):
+    graph_list = []
+    for data in dataset:
+        edge_index = data.edge_index
+        edge_list = edge_index.T.tolist()
+        G = nx.Graph(edge_list)
+        adj = nx.adjacency_matrix(G)
+        graph = {
+            "adj": np.array(adj.todense()),
+            "features": np.array(data.x),  # Aggiunta delle features corrispondenti
+        }
+        graph_list.append(graph)
+    return graph_list
+
+
+def pad_adjacency_matrix(adj, max_nodes):
+    pad_size = max_nodes - adj.shape[0]
+    padded_adj = np.pad(adj, ((0, pad_size), (0, pad_size)), mode="constant")
+    return padded_adj
+
+
+def create_padded_graph_list(dataset):
+    max_num_nodes = max([data.num_nodes for data in dataset])
+    graph_list = []
+    for data in dataset:
+        edge_index = data.edge_index
+        edge_list = edge_index.T.tolist()
+        G = nx.Graph(edge_list)
+        adj = nx.adjacency_matrix(G).todense()
+        padded_adj = pad_adjacency_matrix(adj, max_num_nodes)
+        graph = {
+            "adj": np.array(padded_adj),
+            "features": np.array(
+                torch.cat(
+                    [
+                        data.x,
+                        torch.zeros(max_num_nodes - data.num_nodes, data.num_features),
+                    ]
+                )
+            ),  # Aggiunta delle features con padding
+        }
+        graph_list.append(graph)
+    return graph_list
 
 
 def build_model(args, max_num_nodes):
@@ -29,6 +159,9 @@ def build_model(args, max_num_nodes):
         input_dim = 1
     elif args.feature_type == "struct":
         input_dim = 2
+
+    print(input_dim, max_num_nodes)
+
     model = GraphVAE(input_dim, 64, 256, max_num_nodes)
     return model
 
@@ -107,12 +240,11 @@ def arg_parse():
 
 def main():
     prog_args = arg_parse()
-    
+
     if torch.cuda.is_available():
         print("CUDA is available")
     else:
         print("CUDA is not available")
-        
 
     os.environ["CUDA_VISIBLE_DEVICES"] = str(CUDA)
     print("CUDA", CUDA)
@@ -149,9 +281,22 @@ def main():
     )
     print("max number node: {}".format(max_num_nodes))
 
-    dataset = GraphAdjSampler(
-        graphs_train, max_num_nodes, features=prog_args.feature_type
-    )
+    # dataset = GraphAdjSampler(
+    #     graphs_train, max_num_nodes, features=prog_args.feature_type
+    # )
+    # print("------")
+    # print(dataset[0], "type:", (dataset[0]["features"].dtype))
+    # print("------")
+
+    # # loading dataset
+    dataset = QM9(root="data_prova")
+    max_num_nodes = max([data.num_nodes for data in dataset[0:10]])
+
+    dataset = create_padded_graph_list(dataset[0:10])
+    print(dataset[0])
+
+    # show_qm9_graphs(dataset, 3)
+
     # sample_strategy = torch.utils.data.sampler.WeightedRandomSampler(
     #        [1.0 / len(dataset) for i in range(len(dataset))],
     #        num_samples=prog_args.batch_size,
