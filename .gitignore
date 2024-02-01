@@ -3,9 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+.vscode
 # C extensions
 *.so
-
+GraphVAE/examples/data
 # Distribution / packaging
 .Python
 build/
