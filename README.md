@@ -36,6 +36,20 @@ Per quanto riguarda il dataset (_QM9_), potete comodamente scaricarlo tramite il
   E' sufficiente includere questa riga tra le importazioni:
   `from pytorch_geometric.datasets import QM9`
 
+Il dataset _QM9_ preso da _PyTorch Geometric_ è strutturato come un oggetto InMemoryDataset di PyTorch Geometric. L’oggetto contiene i seguenti attributi:
+
+- `data.x`: Matrice di features dei nodi (dimensione `num_nodes x num_node_features`)
+
+- `data.edge_index`: Matrice di adiacenza sparsa che rappresenta gli archi tra i nodi (dimensione `2 x num_edges`)
+
+- `data.edge_attr`: Matrice di features degli archi (dimensione `num_edges x num_edge_features`)
+
+- `data.y`: Tensor contenente la proprietà target per ogni molecola nel dataset (dimensione `num_molecules x num_targets`)
+
+### Visualizzare il dataset:
+
+https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_dataset_exploration.ipynb
+
 ## Resurces
 
 - [Latent Diffusion](https://github.com/CompVis/latent-diffusion)
@@ -47,3 +61,9 @@ Per quanto riguarda il dataset (_QM9_), potete comodamente scaricarlo tramite il
 - [Diffusers](https://github.com/huggingface/diffusers)
 
 - [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)
+
+
+## Domande
+- Quali metriche usare per confrontare se il grafo generato è buono o no
+- Le features dei nodi e degli edge vanno inserite dentro il modello? (soprattutto quelle degli edge)
+- python QM9_smiles problema in 98! -> [H]C([H])([H])[N@@H+]1C([H])([H])[C@]1([H])C([H])([H])[H] vs [H]C([H])([H])N1C([H])([H])C1([H])C([H])([H])[H]
