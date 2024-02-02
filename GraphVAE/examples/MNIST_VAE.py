@@ -5,6 +5,8 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 import torchvision.utils as vutils
 
+import argparse
+
 # from torch.autograd import Variable
 
 
@@ -49,40 +51,70 @@ def loss_function(recon_x, x, mu, logvar):
 
 
 if __name__ == "__main__":
-    # Caricamento del dataset MNIST
+    parser = argparse.ArgumentParser(description="Project for AI Exam")
+    parser.add_argument(
+        "--model_name", type=str, default="models/MNIST_VAE.pth", dest="model_name"
+    )
+    parser.add_argument(
+        "--dataset_path", type=str, default="data", dest="download_dataset_folder"
+    )
+    parser.add_argument("--batch", type=int, default=64, dest="batch_size")
+    parser.add_argument(
+        "--do_gen", action="store_true", default=False, dest="do_generation"
+    )
+    parser.add_argument("--do_train", action="store_true", default=False)
+    args = parser.parse_args()
+
+    # Caricamento del dataset
+
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST(
-            "data", train=True, download=True, transform=transforms.ToTensor()
+            args.download_dataset_folder,
+            train=True,
+            download=True,
+            transform=transforms.ToTensor(),
         ),
-        batch_size=128,
+        batch_size=args.batch_size,
         shuffle=True,
     )
 
     # Inizializzazione del modello e dell'ottimizzatore
     model = VAE()
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    EPOCHS = 10
+    EPOCHS = 20
 
-    # Allenamento del modello
-    model.train()
-    for epoch in range(EPOCHS):
-        train_loss = 0
-        for batch_idx, (data, _) in enumerate(train_loader):
-            optimizer.zero_grad()
-            recon_batch, mu, logvar = model(data)
-            loss = loss_function(recon_batch, data, mu, logvar)
-            loss.backward()
-            train_loss += loss.item()
-            optimizer.step()
-        print(
-            "Epoch: {} Average loss: {:.4f}".format(
-                epoch, train_loss / len(train_loader.dataset)
+    if args.do_train is True:
+        # Allenamento del modello
+        model.train()
+        for epoch in range(EPOCHS):
+            train_loss = 0
+            for batch_idx, (data, _) in enumerate(train_loader):
+                optimizer.zero_grad()
+                recon_batch, mu, logvar = model(data)
+                loss = loss_function(recon_batch, data, mu, logvar)
+                loss.backward()
+                train_loss += loss.item()
+                optimizer.step()
+            print(
+                "Epoch: {} Average loss: {:.4f}".format(
+                    epoch, train_loss / len(train_loader.dataset)
+                )
             )
-        )
 
-    print("Allenamento completato!")
+        print("Allenamento completato!")
 
-    print("provo a generare una nuova immagine!")
+        # Salva il modello su file
+        torch.save(model.state_dict(), args.model_name)
+
+    if args.do_generation is True and args.do_train is False:
+        # provo a caricarmi il modello già addestrato
+        try:
+            model.load_state_dict(torch.load(args.model_name))
+        except:
+            print("model not found!")
+            exit()
+    elif args.do_generation is False:
+        exit()
 
     # Generazione di un vettore di rumore casuale
     z = torch.randn(1, 20)

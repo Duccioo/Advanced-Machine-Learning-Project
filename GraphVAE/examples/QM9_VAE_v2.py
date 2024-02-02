@@ -5,7 +5,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 from torch_geometric.datasets import QM9
-from torch_geometric.nn import GCNConv, GAE, VGAE
+from torch_geometric.nn import GCNConv, GAE, VGAE, GraphConv
+
+
+from torch_geometric.data import Data
 
 from pyvis.network import Network
 import networkx as nx
@@ -13,34 +16,16 @@ import torch_geometric.utils as utils
 import numpy as np
 
 
-def pad_adjacency_matrix(adj, max_nodes):
-    pad_size = max_nodes - adj.shape[0]
-    padded_adj = np.pad(adj, ((0, pad_size), (0, pad_size)), mode="constant")
-    return padded_adj
-
-
-def create_padded_graph_list(dataset):
-    max_num_nodes = max([data.num_nodes for data in dataset])
-    graph_list = []
-    for data in dataset:
-        edge_index = data.edge_index
-        edge_list = edge_index.T.tolist()
-        G = nx.Graph(edge_list)
-        adj = nx.adjacency_matrix(G).todense()
-        padded_adj = pad_adjacency_matrix(adj, max_num_nodes)
-        graph = {
-            "adj": np.array(padded_adj),
-            "features": np.array(
-                torch.cat(
-                    [
-                        data.x,
-                        torch.zeros(max_num_nodes - data.num_nodes, data.num_features),
-                    ]
-                )
-            ),  # Aggiunta delle features con padding
-        }
-        graph_list.append(graph)
-    return graph_list
+def custom_collate(batch):
+    r"""Custom collate function to handle PyTorch Geometric's Data objects."""
+    elem = batch[0]
+    if isinstance(elem, Data):
+        return batch
+    elif isinstance(elem, tuple):
+        transposed = zip(*batch)
+        return [custom_collate(samples) for samples in transposed]
+    else:
+        return default_collate(batch)
 
 
 # Definizione del modello VAE
@@ -73,17 +58,18 @@ class GraphVAE(nn.Module):
         return self.decode(z, edge_index), mu, logvar
 
 
-if __name__ == "__main__":
+def main():
+    batch_size = 64
     # Caricamento del dataset QM9
     dataset = QM9(root="data/QM9")
-    # dataset_padded = create_padded_graph_list(dataset[0:10])
-
-    loader = DataLoader(dataset, batch_size=64, shuffle=True)
-
-    print(dataset[0])
-
-    # dataset = QM9(root="data/QM9")
-    # loader = DataLoader(dataset, batch_size=64, shuffle=True)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate
+    )
+    # visualizzo il primo grafo:
+    data = utils.from_networkx(nx.Graph(edge_index.T.numpy()))
+    net = Network(notebook=True)
+    net.from_nx(data)
+    net.show("graph.html")
 
     # Inizializzazione del modello e dell'ottimizzatore
     model = GraphVAE(dataset.num_features, 32, dataset.num_features)
@@ -93,10 +79,12 @@ if __name__ == "__main__":
     model.train()
     for epoch in range(10):
         train_loss = 0
-        for batch_idx, data in enumerate(loader):
+        for data in loader:
             optimizer.zero_grad()
-            print(data)
-            recon_data, mu, logvar = model(data.x, data.edge_index)
+            data_x = [data[i].x for i in range(len(data))]
+            data_edge = [data[i].edge_index for i in range(len(data))]
+            print(data_x)
+            recon_data, mu, logvar = model(data_x, data_edge)
             loss = F.binary_cross_entropy(recon_data, data.x, reduction="sum")
             loss += (
                 (1 / data.num_nodes)
@@ -114,17 +102,20 @@ if __name__ == "__main__":
 
     print("Allenamento completato!")
 
-    # Generazione di un vettore di rumore casuale
-    z = torch.randn(1, 20)
 
-    # Generazione del grafo dal vettore di rumore
+# Funzione per generare nuovi grafi dal modello
+def generate_graphs(model, num_graphs):
+    model.eval()
     with torch.no_grad():
+        z = torch.randn(num_graphs, 20)
         adj, features, _ = model.decode(z, None)
-        edge_index = adj[0].to(torch.long).nonzero().t()
-        x = features[0]
+        graphs = []
+        for i in range(num_graphs):
+            edge_index = adj[i].to(torch.long).nonzero().t()
+            x = features[i]
+            graphs.append((x, edge_index))
+        return graphs
 
-    # Visualizzazione del grafo generato
-    data = utils.from_networkx(nx.Graph(edge_index.T.numpy()))
-    net = Network(notebook=True)
-    net.from_nx(data)
-    net.show("graph.html")
+
+if __name__ == "__main__":
+    main()
