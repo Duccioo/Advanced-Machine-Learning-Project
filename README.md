@@ -67,4 +67,3 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 - Quali metriche usare per confrontare se il grafo generato è buono o no
 - Le features dei nodi e degli edge vanno inserite dentro il modello? (soprattutto quelle degli edge)
 - python QM9_smiles problema in 98! -> [H]C([H])([H])[N@@H+]1C([H])([H])[C@]1([H])C([H])([H])[H] vs [H]C([H])([H])N1C([H])([H])C1([H])C([H])([H])[H]
--

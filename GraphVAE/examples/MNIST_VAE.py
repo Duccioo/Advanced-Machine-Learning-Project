@@ -79,9 +79,9 @@ if __name__ == "__main__":
     )
 
     # Inizializzazione del modello e dell'ottimizzatore
-    model = VAE()
+    model = VAE().to("cuda")
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    EPOCHS = 20
+    EPOCHS = 15
 
     if args.do_train is True:
         # Allenamento del modello
@@ -90,8 +90,8 @@ if __name__ == "__main__":
             train_loss = 0
             for batch_idx, (data, _) in enumerate(train_loader):
                 optimizer.zero_grad()
-                recon_batch, mu, logvar = model(data)
-                loss = loss_function(recon_batch, data, mu, logvar)
+                recon_batch, mu, logvar = model(data.to("cuda"))
+                loss = loss_function(recon_batch.to("cuda"), data.to("cuda"), mu.to("cuda"), logvar.to("cuda"))
                 loss.backward()
                 train_loss += loss.item()
                 optimizer.step()
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
     # Generazione dell'immagine dal vettore di rumore
     with torch.no_grad():
-        sample = model.decode(z).cpu()
+        sample = model.to("cpu").decode(z).cpu()
 
     # Visualizzazione dell'immagine generata
     vutils.save_image(sample.view(1, 1, 28, 28), "generated_image.png")

@@ -13,6 +13,7 @@ from rdkit.Chem import rdDepictor
 from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.Draw import IPythonConsole
 import os
+from rdkit.Chem import AllChem
 
 
 def moltosvg(mol, molSize=(450, 150), kekulize=True):
@@ -65,9 +66,17 @@ def data_to_smiles(data, atomic_numbers_idx: int = 5):
 
     # Aggiungi gli atomi alla molecola
     number_atom = 0
-    for atom in data.x.tolist():
+    for idx, atom in enumerate(data.x.tolist()):
         number_atom += 1
-        mol.AddAtom(Chem.Atom(atomic_numbers[int(atom[atomic_numbers_idx])]))
+        # atom = mol.AddAtom(Chem.Atom(atomic_numbers[int(atom[atomic_numbers_idx])]))
+        # print(data.x)
+        # print(atomic_numbers[int(data.z[idx])])
+        atom_ = Chem.Atom(atomic_numbers[int(data.z[idx])])
+        # print(data.pos[idx, 0])
+        atom_.SetDoubleProp("x", data.pos[idx, 0].item())
+        atom_.SetDoubleProp("y", data.pos[idx, 1].item())
+        atom_.SetDoubleProp("z", data.pos[idx, 2].item())
+        mol.AddAtom(atom_)
 
     # Aggiungi i legami alla molecola
     edge_index = data.edge_index.tolist()
@@ -95,6 +104,7 @@ def main():
     # Carica il dataset QM9
     # dataset = QM9(root="data/QM9_dense", transform=T.ToDense()) <- così ho già lo smiles!!
     dataset = QM9(root="data/QM9")
+    print(dataset[0], "\n\n")
 
     # Prendi la prima molecola nel dataset
     index = range(1, 24)
@@ -108,20 +118,26 @@ def main():
         dirpath = ""
         if sm != data.smiles:
             error = error + 1
-            # print(
-            #     f"ohoh, problema in {elem}! ->",
-            #     data.smiles,
-            #     "<00000>",
-            #     sm,
-            #     "$$$$$$",
-            #     number,
-            # )
+            print(
+                f"ohoh, problema in {elem}! ->",
+                data.smiles,
+                "<00000>",
+                sm,
+                "$$$$$$",
+                number,
+            )
+            print(data)
             print(data.x)
-            print(data.edge_index)
-            print(data.edge_attr)
-        
+            # print(data.edge_index)
+            # print(data.edge_attr)
+
         # save_filepath = os.path.join(dirpath, "mol_{}.png".format(elem))
         # mol = Chem.MolFromSmiles(sm)
+        # mol = Chem.AddHs(mol)
+        # save_png(mol, save_filepath, size=(600, 600))
+
+        # save_filepath = os.path.join(dirpath, "mol_{}_2.png".format(elem))
+        # mol = Chem.MolFromSmiles(data.smiles)
         # mol = Chem.AddHs(mol)
         # save_png(mol, save_filepath, size=(600, 600))
 
