@@ -1,121 +1,138 @@
+import argparse
+import os.path as osp
+import time
+
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from torch.autograd import Variable
-from torch_geometric.datasets import QM9
-from torch_geometric.nn import GCNConv, GAE, VGAE, GraphConv
+
+import torch_geometric.transforms as T
+from torch_geometric.datasets import Planetoid
+from torch_geometric.nn import GAE, VGAE, GCNConv, InnerProductDecoder
 
 
-from torch_geometric.data import Data
-
-from pyvis.network import Network
-import networkx as nx
-import torch_geometric.utils as utils
-import numpy as np
-
-
-def custom_collate(batch):
-    r"""Custom collate function to handle PyTorch Geometric's Data objects."""
-    elem = batch[0]
-    if isinstance(elem, Data):
-        return batch
-    elif isinstance(elem, tuple):
-        transposed = zip(*batch)
-        return [custom_collate(samples) for samples in transposed]
-    else:
-        return default_collate(batch)
-
-
-# Definizione del modello VAE
-class GraphVAE(nn.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels):
-        super(GraphVAE, self).__init__()
-
-        self.conv1 = GCNConv(in_channels, hidden_channels)
-        self.conv_mu = GCNConv(hidden_channels, out_channels)
-        self.conv_logvar = GCNConv(hidden_channels, out_channels)
-
-    def encode(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        return self.conv_mu(x, edge_index), self.conv_logvar(x, edge_index)
-
-    def reparameterize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
-
-    def decode(self, z, edge_index):
-        return torch.sigmoid(self.conv1(z, edge_index))
+class GCNEncoder(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = GCNConv(in_channels, 2 * out_channels)
+        self.conv2 = GCNConv(2 * out_channels, out_channels)
 
     def forward(self, x, edge_index):
-        mu, logvar = self.encode(x, edge_index)
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z, edge_index), mu, logvar
+        x = self.conv1(x, edge_index).relu()
+        return self.conv2(x, edge_index)
 
 
-def main():
-    batch_size = 64
-    # Caricamento del dataset QM9
-    dataset = QM9(root="data/QM9")
-    loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate
-    )
-    # visualizzo il primo grafo:
-    data = utils.from_networkx(nx.Graph(edge_index.T.numpy()))
-    net = Network(notebook=True)
-    net.from_nx(data)
-    net.show("graph.html")
+class VariationalGCNEncoder(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv1 = GCNConv(in_channels, 2 * out_channels)
+        self.conv_mu = GCNConv(2 * out_channels, out_channels)
+        self.conv_logstd = GCNConv(2 * out_channels, out_channels)
 
-    # Inizializzazione del modello e dell'ottimizzatore
-    model = GraphVAE(dataset.num_features, 32, dataset.num_features)
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    def forward(self, x, edge_index):
+        x = self.conv1(x, edge_index).relu()
+        return self.conv_mu(x, edge_index), self.conv_logstd(x, edge_index)
 
-    # Allenamento del modello
+
+class LinearEncoder(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = GCNConv(in_channels, out_channels)
+
+    def forward(self, x, edge_index):
+        return self.conv(x, edge_index)
+
+
+class VariationalLinearEncoder(torch.nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv_mu = GCNConv(in_channels, out_channels)
+        self.conv_logstd = GCNConv(in_channels, out_channels)
+
+    def forward(self, x, edge_index):
+        return self.conv_mu(x, edge_index), self.conv_logstd(x, edge_index)
+
+
+def train():
     model.train()
-    for epoch in range(10):
-        train_loss = 0
-        for data in loader:
-            optimizer.zero_grad()
-            data_x = [data[i].x for i in range(len(data))]
-            data_edge = [data[i].edge_index for i in range(len(data))]
-            print(data_x)
-            recon_data, mu, logvar = model(data_x, data_edge)
-            loss = F.binary_cross_entropy(recon_data, data.x, reduction="sum")
-            loss += (
-                (1 / data.num_nodes)
-                * 0.5
-                * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            )
-            loss.backward()
-            train_loss += loss.item()
-            optimizer.step()
-        print(
-            "Epoch: {} Average loss: {:.4f}".format(
-                epoch, train_loss / len(loader.dataset)
-            )
-        )
-
-    print("Allenamento completato!")
+    optimizer.zero_grad()
+    # print(train_data.edge_index)
+    # print(train_data.pos_edge_label_index)
+    # print("##"*20)
+    z = model.encode(train_data.x, train_data.edge_index)
+    loss = model.recon_loss(z, train_data.edge_index)
+    if args.variational:
+        loss = loss + (1 / train_data.num_nodes) * model.kl_loss()
+    loss.backward()
+    optimizer.step()
+    return float(loss)
 
 
-# Funzione per generare nuovi grafi dal modello
-def generate_graphs(model, num_graphs):
+@torch.no_grad()
+def test(data):
     model.eval()
-    with torch.no_grad():
-        z = torch.randn(num_graphs, 20)
-        adj, features, _ = model.decode(z, None)
-        graphs = []
-        for i in range(num_graphs):
-            edge_index = adj[i].to(torch.long).nonzero().t()
-            x = features[i]
-            graphs.append((x, edge_index))
-        return graphs
+    z = model.encode(data.x, data.edge_index)
+    out = model(data.x, data.edge_index)
+    # print(out)
+    return model.test(z, data.pos_edge_label_index, data.neg_edge_label_index)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--variational", action="store_true", default=True)
+    parser.add_argument("--linear", action="store_true")
+    parser.add_argument(
+        "--dataset", type=str, default="Cora", choices=["Cora", "CiteSeer", "PubMed"]
+    )
+    parser.add_argument("--epochs", type=int, default=400)
+    args = parser.parse_args()
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    transform = T.Compose(
+        [
+            T.NormalizeFeatures(),
+            T.ToDevice(device),
+            T.RandomLinkSplit(
+                num_val=0.05,
+                num_test=0.1,
+                is_undirected=True,
+                split_labels=True,
+                add_negative_train_samples=False,
+            ),
+        ]
+    )
+    path = osp.join(osp.dirname(osp.realpath(__file__)), "data", "Planetoid")
+    dataset = Planetoid(path, args.dataset, transform=transform)
+    train_data, val_data, test_data = dataset[0]
+    in_channels, out_channels = dataset.num_features, 16
+
+    if args.variational and not args.linear:
+        model = VGAE(VariationalGCNEncoder(in_channels, out_channels))
+    elif args.variational and args.linear:
+        model = VGAE(VariationalLinearEncoder(in_channels, out_channels))
+
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+
+    times = []
+    for epoch in range(1, args.epochs + 1):
+        start = time.time()
+        loss = train()
+        auc, ap = test(test_data)
+        print(f"Epoch: {epoch:03d}, AUC: {auc:.4f}, AP: {ap:.4f}")
+        times.append(time.time() - start)
+    print(f"Median time per epoch: {torch.tensor(times).median():.4f}s")
+
+    # Generazione di un vettore di rumore casuale
+    z = torch.randn(5, 16)
+
+    # Generazione del grafo dal vettore di rumore
+    with torch.no_grad():
+        adj = model.decode(z)
+
+    rounded_matrix = torch.round(adj)
+    print(rounded_matrix)

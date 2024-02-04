@@ -27,6 +27,11 @@
 
   Ci sono anche altri modelli nella stessa repo che potrebbero essere interessanti, ma secondo me conviene partire con questa implementazione di GraphVAE che vi ho linkato.
 
+  _Altre implementazioni:_
+
+  - [Official pytorch_geometric VGAE implementation](https://github.com/pyg-team/pytorch_geometric/blob/master/examples/autoencoder.py)
+  - [Another VGAE implementation](https://github.com/DaehanKim/vgae_pytorch/blob/master/model.py)
+
 ## Dataset
 
 Per quanto riguarda il dataset (_QM9_), potete comodamente scaricarlo tramite il pacchetto pytorch_geometric, come spiegato a questo link:
@@ -52,18 +57,23 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## Resurces
 
-- [Latent Diffusion](https://github.com/CompVis/latent-diffusion)
+- Latent Diffusion:
 
-  - [Notebook on ImageNet](https://github.com/CompVis/latent-diffusion/blob/main/scripts/latent_imagenet_diffusion.ipynb)
+  - [Latent Diffusion](https://github.com/CompVis/latent-diffusion)
 
-- [Hugging Face](https://huggingface.co/fusing/latent-diffusion-text2im-large)
+    - [Notebook on ImageNet](https://github.com/CompVis/latent-diffusion/blob/main/scripts/latent_imagenet_diffusion.ipynb)
 
-- [Diffusers](https://github.com/huggingface/diffusers)
+  - [Hugging Face](https://huggingface.co/fusing/latent-diffusion-text2im-large)
 
-- [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)
+  - [Diffusers](https://github.com/huggingface/diffusers)
 
+  - [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)
+
+- VGAE:
+  - [Tutorial VGAE](https://towardsdatascience.com/tutorial-on-variational-graph-auto-encoders-da9333281129)
 
 ## Domande
+
 - Quali metriche usare per confrontare se il grafo generato è buono o no
 - Le features dei nodi e degli edge vanno inserite dentro il modello? (soprattutto quelle degli edge)
 - python QM9_smiles problema in 98! -> [H]C([H])([H])[N@@H+]1C([H])([H])[C@]1([H])C([H])([H])[H] vs [H]C([H])([H])N1C([H])([H])C1([H])C([H])([H])[H]
