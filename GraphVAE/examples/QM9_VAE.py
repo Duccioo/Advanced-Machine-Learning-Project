@@ -169,6 +169,8 @@ if __name__ == "__main__":
     #     dataset[0:1000], batch_size=BATCH_SIZE, shuffle=False, collate_fn=custom_collate
     # )
     loader = DataLoader(dataset_padded, batch_size=BATCH_SIZE, shuffle=False)
+    
+
 
     latent_space = 2
     hidden_space = 5
@@ -215,6 +217,7 @@ if __name__ == "__main__":
     for epoch in range(EPOCH):
         train_loss = 0
         for batch_idx, data in enumerate(loader):
+            # print(data)
             optimizer.zero_grad()
             # print("adj", data["adj"].shape)
             # print("edge index", data["edge_index"].shape)

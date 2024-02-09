@@ -55,6 +55,45 @@ Il dataset _QM9_ preso da _PyTorch Geometric_ è strutturato come un oggetto InM
 
 https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_dataset_exploration.ipynb
 
+## Question & Answer
+
+<details>
+<summary> 1) C'è differenza tra modelli GraphVAE e VGAE? </summary>
+
+> GraphVAE e VGAE sono due modelli leggermente diversi, ma appartengono alla stessa classe (graph-based variational autoencoders) e sono del tutto intercambiabili, quindi usate pure quello che vi sembra meglio.
+> Comunque, cambiando dataset, le matrici di adiacenza cambiano. Nella repository che vi ho passato, il file "train.py" carica le matrici di adiacenza dal dataset "enzymes", mentre a voi servono quelle di QM9. Il DataLoader di QM9 che trovate in pytorch_geometric carica i grafi di QM9, ognuno dei quali contiene la sua matrice di adiacenza. Tendenzialmente, il DataLoader di QM9 dovrebbe funzionare con GraphVAE e con VGAE. Se non fosse così, ci sarà da adattare la classe GraphAdjSampler che trovate in "data.py" al formato dati di QM9. GraphAdjSampler infatti è un DataLoader scritto dagli autori della repo (in poche righe di codice) appositamente per il dataset "Enzymes".
+
+</details>
+
+<details>
+<summary> 2) Quali metriche conviene utilizzare per confrontare se il grafo generato è buono o no?</summary>
+
+> Per capire se i grafi generati sono buoni o no si può procedere in due modi: valutare Validity, Uniqueness e Novelty, e controllare che le distribuzioni di probabilità siano simili a quelle del training set. Per adesso mi limiterei a Validity, Uniqueness, Novelty. La validity si può valutare col pacchetto python RdKit con una routine che permette di scartare i grafi che violano qualche regola della Chimica e di misurare la percentuale di grafi generati che sono validi. La Uniqueness viene calcolata comparando i grafi generati uno a uno e scartando i doppioni, misurando la percentuale di molecole che non sono copie di altre. Infine, la novelty viene misurata comparando tutti i grafi validi e unici generati con i grafi del training set, ottenendo la percentuale di materiale effettivamente "nuovo" generato dalla rete.
+
+</details>
+
+<details>
+<summary>3) Le features dei edge vanno inserite dentro il modello?
+</summary>
+
+> Le edge features sono una delle matrici da passare in input al modello: il DataLoader di QM9, una volta integrato nel codice, dovrebbe automaticamente passarle al modello quando si chiama la funzione "train". Se i tipi di archi definiti da Enzymes e da QM9 non sono uguali (come sospetto), ci sta che vada aggiustato un parametro nel codice del modello per far funzionare GraphVAE sulla matrice di QM9.
+
+</details>
+
+<details>
+<summary> 4) Ci siamo accorti, infine, che analizzando il dataset QM9 c'è qualcosa che non torna.
+
+Un esempio è la molecola numero 23 denominata "gdb_24" con una ground truth smiles = [H]CC#C[NH3+].
+Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecola 23 otteniamo uno smiles = [H]CC#CN.</summary>
+
+> Il "problema" delle SMILES è che non sono rappresentazioni univoche: la stessa molecola può essere rappresentata da un sacco di diverse SMILES, a seconda dell'atomo da cui si inizia a scrivere la stringa SMILES e a seconda delle ramificazioni che scegliamo di espandere per prime durante la visita del grafo. Esiste un modo per rendere le SMILES "canoniche", seguendo delle regole che stabiliscono quali ramificazioni espandere per prime ecc..., ma anche in questo caso non si rende univoca la rappresentazione (spesso, esistono più SMILES canoniche per una molecola).
+> Gli ioni possono essere riportati alla molecola con carica neutra corrispondente, per cui [H]CC#C[NH3+] = [H]CC#C[NH2].
+> Inoltre, gli atomi di idrogeno sono spesso superflui nell descrizione di una molecola organica, per cui [H]CC#C[NH3+] = [H]CC#C[NH2] = [H]CC#CN = CC#CN
+> Spesso, anche i generatori di grafi ignorano gli atomi di idrogeno, soprattutto modelli come i GraphVAE che non sono invarianti alle permutazioni dell'ordinamento del grafo. Non considerando gli idrogeni, infatti, si riduce di più della metà il numero di atomi presenti in una molecola, riducendo drasticamente il numero di ordinamenti possibili per il grafo molecolare che la rappresenta. Anche l'addestramento del modello, in termini di memoria occupata e tempo di esecuzione, beneficia molto dell'assenza degli atomi di idrogeno.
+> Se trovate degli idrogeni nei dati di QM9, vi conviene riscrivere il DataLoader in modo da eliminarli (sia dalla matrice delle features, che dalla matrice di adiacenza, eliminando poi anche le features degli archi che connettono gli atomi di idrogeno al resto del grafo). Penso però che il DataLoader di pytorch_geometric non carichi gli idrogeni. Potete controllare stampando la dimensione massima dei grafi che il DataLoader vi passa: se la dimensione massima è 29 ci sono gli idrogeni, se invece è 9 non ci sono.
+
+</details>
+
 ## Resurces
 
 - Latent Diffusion:
@@ -71,9 +110,3 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 - VGAE:
   - [Tutorial VGAE](https://towardsdatascience.com/tutorial-on-variational-graph-auto-encoders-da9333281129)
-
-## Domande
-
-- Quali metriche usare per confrontare se il grafo generato è buono o no
-- Le features dei nodi e degli edge vanno inserite dentro il modello? (soprattutto quelle degli edge)
-- python QM9_smiles problema in 98! -> [H]C([H])([H])[N@@H+]1C([H])([H])[C@]1([H])C([H])([H])[H] vs [H]C([H])([H])N1C([H])([H])C1([H])C([H])([H])[H]

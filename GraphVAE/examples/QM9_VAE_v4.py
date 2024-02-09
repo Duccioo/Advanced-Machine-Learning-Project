@@ -12,6 +12,16 @@ import numpy as np
 from torch_geometric.data import Data
 from torch.optim.lr_scheduler import MultiStepLR
 import torch_geometric.transforms as T
+from torch.autograd import Variable
+import scipy.optimize
+from torch import Tensor
+from typing import Optional, Tuple, Union
+from torch_geometric.utils import (
+    train_test_split_edges,
+    negative_sampling,
+    remove_self_loops,
+    add_self_loops,
+)
 
 LR_milestones = [500, 1000]
 
@@ -80,7 +90,7 @@ class GraphVAE(nn.Module):
         self.conv3 = GCNConv(hidden_dim, in_dim)
         # ---
 
-    def encode(self, edge_index, x_features):
+    def encode(self, x_features, edge_index):
         x = F.relu(self.conv1(x_features, edge_index))
         mu = self.conv_mu(x, edge_index)
         logvar = self.conv_logvar(x, edge_index)
@@ -94,46 +104,219 @@ class GraphVAE(nn.Module):
         else:
             return mu
 
-    def decode(self, edge_index, z):
+    def decode(self, z, edge_index):
         z = self.conv2(z, edge_index)
         z = F.relu(z)
         z = self.conv3(z, edge_index)
         z = torch.sigmoid(z)
         return z
 
-    def forward(self, adj, x_features):
-        mu, logvar = self.encode(adj, x_features)
+    def forward(self, x_features, edge_index):
+        mu, logvar = self.encode(x_features, edge_index)
         z = self.reparameterize(mu, logvar)
 
         A_pred = dot_product_decode(z)
 
-        # x_pred = self.decode(adj, z)
-        return A_pred, mu, logvar, z, 0
+        x_pred = self.decode(z, edge_index)
+        return A_pred, mu, logvar, z, x_pred
 
     def generate(self, z):
         A_pred = dot_product_decode(z)
+        # z_decoded = self.decode(A_pred, z)
         return A_pred
+
+    def recon_loss(
+        self, z: Tensor, pos_edge_index: Tensor, neg_edge_index: Optional[Tensor] = None
+    ) -> Tensor:
+
+        EPS = 1e-15
+        MAX_LOGSTD = 10
+
+        r"""Given latent variables :obj:`z`, computes the binary cross
+        entropy loss for positive edges :obj:`pos_edge_index` and negative
+        sampled edges.
+
+        Args:
+            z (torch.Tensor): The latent space :math:`\mathbf{Z}`.
+            pos_edge_index (torch.Tensor): The positive edges to train against.
+            neg_edge_index (torch.Tensor, optional): The negative edges to
+                train against. If not given, uses negative sampling to
+                calculate negative edges. (default: :obj:`None`)
+        """
+        pos_loss = -torch.log(self.decode(z, pos_edge_index) + EPS).mean()
+
+        if neg_edge_index is None:
+            neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
+        neg_loss = -torch.log(1 - self.decode(z, neg_edge_index) + EPS).mean()
+
+        return pos_loss + neg_loss
 
     # Aggiorna la funzione di loss
     def loss(self, x, edge_index):
-        mu, logvar = self.encode(edge_index, x)
+        mu, logvar = self.encode(x, edge_index)
+        max_num_nodes = 5
 
         z = self.reparameterize(mu, logvar)
         adj_reconstructed = dot_product_decode(z)
         adj_target = edge_index_to_adjacency(edge_index)
-        # adj_loss = F.binary_cross_entropy(
-        #     input=adj_reconstructed.view(-1),
-        #     target=adj_target.view(-1).to(dtype=torch.float32),
-        # )
+        adj_loss = F.binary_cross_entropy(
+            input=adj_reconstructed.view(-1),
+            target=adj_target.view(-1).to(dtype=torch.float32),
+        )
 
-        pos_loss = -torch.log(self.decode(edge_index, z) + 1e-15).mean()
+        pos_loss = -torch.log(self.decode(z, edge_index) + 1e-15).mean()
         # print(self.decode(edge_index, z))
 
         kl_divergence = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        # kl_divergence /= max_num_nodes * max_num_nodes  # normalize
+        kl_divergence /= max_num_nodes * max_num_nodes  # normalize
         kl_loss = 1 / x.size(0) * kl_divergence
 
         return pos_loss + kl_loss
+
+    def loss2(self, x, edge_index):
+        self.max_num_nodes = 5
+        adj_data = edge_index_to_adjacency(edge_index)
+        # vae
+        z_mu, z_lsgms = self.encode(edge_index, x)
+
+        z = self.reparameterize(mu, logvar)
+
+        out = dot_product_decode(z)
+
+        print(adj_data)
+        adj_vectorized = adj_data[
+            torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
+        ].squeeze_()
+        adj_vectorized_var = Variable(adj_vectorized)
+
+        # print(adj)
+        # print('permuted: ', adj_permuted)
+        # print('recon: ', recon_adj_tensor)
+        adj_recon_loss = self.adj_recon_loss(adj_vectorized_var, out[0])
+        print("recon: ", adj_recon_loss)
+        print(adj_vectorized_var)
+        print(out[0])
+
+        loss_kl = -0.5 * torch.sum(1 + z_lsgms - z_mu.pow(2) - z_lsgms.exp())
+        loss_kl /= self.max_num_nodes * self.max_num_nodes  # normalize
+        print("kl: ", loss_kl)
+
+        loss = adj_recon_loss + loss_kl
+
+        return loss
+
+    def edge_similarity_matrix(
+        self, adj, adj_recon, matching_features, matching_features_recon, sim_func
+    ):
+        S = torch.zeros(
+            self.max_num_nodes,
+            self.max_num_nodes,
+            self.max_num_nodes,
+            self.max_num_nodes,
+        )
+        for i in range(self.max_num_nodes):
+            for j in range(self.max_num_nodes):
+                if i == j:
+                    for a in range(self.max_num_nodes):
+                        S[i, i, a, a] = (
+                            adj[i, i]
+                            * adj_recon[a, a]
+                            * sim_func(matching_features[i], matching_features_recon[a])
+                        )
+                        # with feature not implemented
+                        # if input_features is not None:
+                else:
+                    for a in range(self.max_num_nodes):
+                        for b in range(self.max_num_nodes):
+                            if b == a:
+                                continue
+                            S[i, j, a, b] = (
+                                adj[i, j]
+                                * adj[i, i]
+                                * adj[j, j]
+                                * adj_recon[a, b]
+                                * adj_recon[a, a]
+                                * adj_recon[b, b]
+                            )
+        return S
+
+    def forward_test(self):
+        self.max_num_nodes = 4
+        adj_data = torch.zeros(self.max_num_nodes, self.max_num_nodes)
+        adj_data[:4, :4] = torch.FloatTensor(
+            [[1, 1, 0, 0], [1, 1, 1, 0], [0, 1, 1, 1], [0, 0, 1, 1]]
+        )
+        adj_features = torch.Tensor([2, 3, 3, 2])
+
+        adj_data1 = torch.zeros(self.max_num_nodes, self.max_num_nodes)
+        adj_data1 = torch.FloatTensor(
+            [[1, 1, 1, 0], [1, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1]]
+        )
+        adj_features1 = torch.Tensor([3, 3, 2, 2])
+        S = self.edge_similarity_matrix(
+            adj_data,
+            adj_data1,
+            adj_features,
+            adj_features1,
+            self.deg_feature_similarity,
+        )
+
+        # initialization strategies
+        init_corr = 1 / self.max_num_nodes
+        init_assignment = torch.ones(self.max_num_nodes, self.max_num_nodes) * init_corr
+        # init_assignment = torch.FloatTensor(4, 4)
+        # init.uniform(init_assignment)
+        assignment = self.mpm(init_assignment, S)
+        # print('Assignment: ', assignment)
+
+        # matching
+        row_ind, col_ind = scipy.optimize.linear_sum_assignment(-assignment.numpy())
+        print("row: ", row_ind)
+        print("col: ", col_ind)
+
+        permuted_adj = self.permute_adj(adj_data, row_ind, col_ind)
+        print("permuted: ", permuted_adj)
+
+        adj_recon_loss = self.adj_recon_loss(adj_data, adj_data1)
+        print(adj_data1)
+        print("diff: ", adj_recon_loss)
+
+    def deg_feature_similarity(self, f1, f2):
+        return 1 / (abs(f1 - f2) + 1)
+
+    def mpm(self, x_init, S, max_iters=50):
+        x = x_init
+        for it in range(max_iters):
+            x_new = torch.zeros(self.max_num_nodes, self.max_num_nodes)
+            for i in range(self.max_num_nodes):
+                for a in range(self.max_num_nodes):
+                    x_new[i, a] = x[i, a] * S[i, i, a, a]
+                    pooled = [
+                        torch.max(x[j, :] * S[i, j, a, :])
+                        for j in range(self.max_num_nodes)
+                        if j != i
+                    ]
+                    neigh_sim = sum(pooled)
+                    x_new[i, a] += neigh_sim
+            norm = torch.norm(x_new)
+            x = x_new / norm
+        return x
+
+    def permute_adj(self, adj, curr_ind, target_ind):
+        """Permute adjacency matrix.
+        The target_ind (connectivity) should be permuted to the curr_ind position.
+        """
+        # order curr_ind according to target ind
+        ind = np.zeros(self.max_num_nodes, dtype=np.int32)
+        ind[target_ind] = curr_ind
+        adj_permuted = torch.zeros((self.max_num_nodes, self.max_num_nodes))
+        adj_permuted[:, :] = adj[ind, :]
+        adj_permuted[:, :] = adj_permuted[:, ind]
+        return adj_permuted
+
+    def adj_recon_loss(self, adj_truth, adj_pred):
+        print("truth: ", adj_truth)
+        return F.binary_cross_entropy(adj_truth, adj_pred)
 
 
 if __name__ == "__main__":
@@ -141,14 +324,12 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 1
     LEARNING_RATE = 0.005
-    EPOCH = 3000
+    EPOCH = 1000
     latent_space = 8
     hidden_space = 11
 
     # Caricamento del dataset QM9
-    dataset = QM9(
-        root="data/QM9",
-    )
+    dataset = QM9(root="data/QM9", transform=T.NormalizeFeatures())
     dataset_padded, max_number_nodes = create_padded_graph_list(dataset[0:1])
 
     loader = DataLoader(dataset_padded, batch_size=BATCH_SIZE, shuffle=False)
@@ -186,9 +367,13 @@ if __name__ == "__main__":
             optimizer.zero_grad()
 
             A_star, mu, logvar, z_star, x_pred = model(
-                data["edge_index"][0], data["features"][0]
+                data["features"][0], data["edge_index"][0]
             )
+            # model.forward_test()
+            # mu, logvar = self.encode(x_features, edge_index)
+            # z = self.reparameterize(mu, logvar)
             loss = model.loss(data["features"][0], data["edge_index"][0])
+            # loss = model.recon_loss(z_star, data["edge_index"][0])
             loss.backward()
             train_loss += loss.item()
             optimizer.step()
@@ -196,8 +381,9 @@ if __name__ == "__main__":
         print("Epoch: {} Average loss: {:.4f}".format(epoch, loss))
 
     print("Allenamento completato!")
-    A_star, mu, logvar, z_star, x_pred = model(dataset[0].edge_index, dataset[0].x)
-    print(" DI NUOVO A_STAR", A_star)
+    A_star, mu, logvar, z_star, x_pred = model(dataset[0].x, dataset[0].edge_index)
+    print(" DI NUOVO", x_pred)
+    print("MENTRE QUELLO VERO è", dataset[0].x)
 
     # Generazione di un vettore di rumore casuale
     z = torch.randn(5, latent_space)

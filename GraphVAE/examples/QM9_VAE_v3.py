@@ -49,6 +49,8 @@ class DeepVGAE(VGAE):
         pos_loss = -torch.log(
             self.decoder(z, pos_edge_index, sigmoid=True) + 1e-15
         ).mean()
+        
+        
 
         # Do not include self-loops in negative samples
         all_edge_index_tmp, _ = remove_self_loops(all_edge_index)
