@@ -128,8 +128,8 @@ def main():
             )
             print(data)
             print(data.x)
-            # print(data.edge_index)
-            # print(data.edge_attr)
+            print(data.edge_index)
+            print(data.edge_attr)
 
         # save_filepath = os.path.join(dirpath, "mol_{}.png".format(elem))
         # mol = Chem.MolFromSmiles(sm)

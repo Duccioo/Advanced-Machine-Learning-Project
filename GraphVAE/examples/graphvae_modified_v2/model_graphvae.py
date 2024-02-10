@@ -35,8 +35,11 @@ class GraphVAE(nn.Module):
 
         output_dim = max_num_nodes * (max_num_nodes + 1) // 2
         self.num_features = num_features
+        self.input_dimension = input_dim
         # self.vae = MLP_VAE_plain(hidden_dim, latent_dim, output_dim)
-        self.vae = MLP_VAE_plain(input_dim * 11, latent_dim, output_dim)
+        self.vae = MLP_VAE_plain(
+            self.input_dimension * self.num_features, latent_dim, output_dim
+        )
         # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
 
         self.max_num_nodes = max_num_nodes
@@ -137,78 +140,26 @@ class GraphVAE(nn.Module):
         return out
 
     def forward(self, input_features, adj):
-        # x = self.conv1(input_features, adj)
-        # x = self.bn1(x)
-        # x = self.act(x)
-        # x = self.conv2(x, adj)
-        # x = self.bn2(x)
-
-        # pool over all nodes
-        # graph_h = self.pool_graph(x)
-        graph_h = input_features.view(-1, self.max_num_nodes * self.num_features)
+        # print(self.input_dimension)
+        # print(input_features.shape)
+        # print(len(input_features))
+        # print(self.num_features)
+        # print(self.input_dimension * self.num_features)
+        graph_h = input_features.view(-1, self.input_dimension * self.num_features)
         # vae
-        h_decode, z_mu, z_lsgms = self.vae(graph_h)
+        h_decode, z_mu, z_lsgms, output_features = self.vae(graph_h)
         out = F.sigmoid(h_decode)
-        # out_tensor = out.cpu().data
-
-        # print("forward completato")
-        # recon_adj_lower = self.recover_adj_lower(out_tensor)
-        # recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-        # print("adj ripresa")
-
-        # set matching features be degree
-        # out_features = torch.sum(recon_adj_tensor, 1)
 
         adj_data = adj.cpu().data[0]
-        # adj_features = torch.sum(adj_data, 1)
-        # print("calcolo la loss")
 
-        # S = self.edge_similarity_matrix(
-        #     adj_data,
-        #     recon_adj_tensor,
-        #     adj_features,
-        #     out_features,
-        #     self.deg_feature_similarity,
-        # )
-
-        # # initialization strategies
-        # init_corr = 1 / self.max_num_nodes
-        # init_assignment = torch.ones(self.max_num_nodes, self.max_num_nodes) * init_corr
-        # # init_assignment = torch.FloatTensor(4, 4)
-        # # init.uniform(init_assignment)
-        # assignment = self.mpm(init_assignment, S)
-        # # print('Assignment: ', assignment)
-
-        # # matching
-        # print(-assignment.numpy())
-        # # use negative of the assignment score since the alg finds min cost flow
-        # row_ind, col_ind = scipy.optimize.linear_sum_assignment(-assignment.numpy())
-        # print("row: ", row_ind)
-        # print("col: ", col_ind)
-        # order row index according to col index
-        # adj_permuted = self.permute_adj(adj_data, row_ind, col_ind)
-        adj_permuted = adj_data
-        # print(adj_data)
-        # print(adj_data.shape)
-        # print("*" * 10)
-
-        adj_vectorized = adj_permuted[
+        adj_vectorized = adj_data[
             torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
         ].squeeze_()  # qui si va a trasformare la matrice adiacente in un vettore prendento la triangolare superiore della matrice adiacente.
-        # print(adj_vectorized)
-        # print(adj_vectorized.shape)
 
         adj_vectorized_var = Variable(adj_vectorized).cuda()
-        # print("adj_vectorized: ", adj_vectorized_var.shape)
-        # print("OUT shape: ", out[0].shape)
 
-        # # print(adj)
-        # print("permuted: ", adj_permuted)
-        # print("recon: ", recon_adj_tensor)
         adj_recon_loss = self.adj_recon_loss(adj_vectorized_var, out[0])
-        # print("recon: ", adj_recon_loss.item())
-        # print(adj_vectorized_var)
-        # print(out[0])
+        # self.generate_features_edge(num_edge = 10)
 
         # kl loss server solo media e varianza
         loss_kl = -0.5 * torch.sum(1 + z_lsgms - z_mu.pow(2) - z_lsgms.exp())
@@ -219,23 +170,55 @@ class GraphVAE(nn.Module):
 
         return loss
 
-    def generate(self, input_features):
+    def generate(self, z, device="cpu"):
+        # print("z shape", z.shape)
         # Variable(torch.tensor(input_features, dtype=torch.float32))
-        input_features = torch.tensor(input_features, dtype=torch.float32).cuda()
+        # z = torch.tensor(z, dtype=torch.float32).cuda()
+        z = z.clone().detach().to(dtype=torch.float32).to(device=device)
+        print("z shape", z.shape)
         # input_features = np.array(input_features)
         # print(input_features)
-        graph_h = input_features.view(-1, self.max_num_nodes * 11)
-        h_decode, z_mu, z_lsgms = self.vae(graph_h)
+        # graph_h = input_features.view(-1, self.max_num_nodes * self.num_features)
+        # h_decode, z_mu, z_lsgms = self.vae(graph_h)
+        h_decode, output_features = self.vae.decode(z)
+        output_features = output_features.view(
+            -1, self.input_dimension, self.num_features
+        )
+        # print("output features ", output_features.shape)
+        output_node_features = output_features[:, :, : self.num_features - 4].squeeze_()
+        # Definizione dei bin per la classificazione
+        num_bins = 5
+        bins = torch.linspace(0, 1, num_bins + 1).to(device)  # 5 bin per 5 classi
+        # Classificazione dei valori del vettore in base ai bin
+        # classifications = np.digitize(
+        #     output_node_features[:, 5:6].detach().to(device="cpu"), bins
+        # )
+        # print(" ASOPDSKDOPASKDPOSKADOPASDPSD")
+        classifications = torch.bucketize(output_node_features[:, 5:6], bins)
+
+        print("classifications ", classifications.shape)
+        
+        output_node_features[:, 5] = classifications.squeeze_()
+
+        output_edge_features = output_features[:, :, self.num_features - 4 :].squeeze_()
+        max_indices = torch.argmax(output_edge_features, dim=1)
+        # Crea una matrice one-hot utilizzando max_indices
+        output_edge_features = torch.eye(4)[max_indices.detach().to(device="cpu")]
+        # print("output nodes ", output_node_features.shape)
+        # print("output edges ", output_edge_features.shape)
+
         out = F.sigmoid(h_decode)
         out_tensor = out.cpu().data
 
-        print("forward completato")
+        # print(out_tensor.shape)
+
+        # print("forward completato")
         recon_adj_lower = self.recover_adj_lower(out_tensor)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-        print("adj ripresa")
-        print(recon_adj_tensor)
+        # print("adj ripresa")
+        # print(recon_adj_tensor)
 
-        return recon_adj_tensor
+        return recon_adj_tensor, output_node_features, output_edge_features
 
     def forward_test(self, input_features, adj):
         self.max_num_nodes = 4

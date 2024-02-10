@@ -94,12 +94,16 @@ Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecol
 
 </details>
 
+
+5) come faccio a far si che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
+
 ## To do
 
-- aggiungere le features degli archi all'input:
-  - soluzione 1: concatenare le features degli edge alle colonne delle features dei nodi
-- implementare le metriche
-- latent diffusion
+- [ ] aggiungere le features degli archi all'input:
+  - [x] soluzione 1: concatenare le features degli edge alle colonne delle features dei nodi
+  
+- [ ] implementare le metriche
+- [ ] latent diffusion
 
 ## Resurces
 
