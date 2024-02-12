@@ -21,6 +21,7 @@ class GraphVAE(nn.Module):
         max_num_nodes,
         pool="sum",
         num_features=11,
+        device=torch.device("cpu"),
     ):
         """
         Args:
@@ -43,7 +44,7 @@ class GraphVAE(nn.Module):
             self.input_dimension * self.num_features,
             latent_dim,
             output_dim,
-            device=torch.device("cuda"),
+            device=device,
         )
 
         # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
