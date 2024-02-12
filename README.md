@@ -94,15 +94,13 @@ Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecol
 
 </details>
 
-
-5) come faccio a far si che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
+5. come faccio a far si che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
 
 ## To do
 
 - [ ] aggiungere le features degli archi all'input:
   - [x] soluzione 1: concatenare le features degli edge alle colonne delle features dei nodi
-  
-- [ ] implementare le metriche
+- [x] implementare le metriche
 - [ ] latent diffusion
 
 ## Resurces
@@ -120,4 +118,11 @@ Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecol
   - [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)
 
 - VGAE:
+
   - [Tutorial VGAE](https://towardsdatascience.com/tutorial-on-variational-graph-auto-encoders-da9333281129)
+
+- [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
+- [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
+- [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
+
+
