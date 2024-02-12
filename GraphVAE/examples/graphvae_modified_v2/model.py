@@ -1,22 +1,11 @@
 from __future__ import unicode_literals, print_function, division
-from io import open
-import unicodedata
-import string
-import re
-import random
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-from torch import optim
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
-
-from collections import OrderedDict
-import math
-import numpy as np
-import time
 
 
 def binary_cross_entropy_weight(
@@ -429,21 +418,22 @@ class MLP_token_plain(nn.Module):
 
 # a deterministic linear output (update: add noise)
 class MLP_VAE_plain(nn.Module):
-    def __init__(self, h_size, embedding_size, y_size):
+    def __init__(self, h_size, embedding_size, y_size, device):
         super(MLP_VAE_plain, self).__init__()
-        self.encode_11 = nn.Linear(h_size, embedding_size)  # mu
-        self.encode_12 = nn.Linear(h_size, embedding_size)  # lsgms
 
-        self.decode_1 = nn.Linear(embedding_size, embedding_size)
-        self.decode_2 = nn.Linear(
-            embedding_size, y_size
-        )  # make edge prediction (reconstruct)
-        self.relu = nn.ReLU()
+        self.device = device
+        self.encode_11 = nn.Linear(h_size, embedding_size).to(device=device)  # mu
+        self.encode_12 = nn.Linear(h_size, embedding_size).to(device=device)  # lsgms
 
-        self.decode_1_features = nn.Linear(embedding_size, embedding_size)
-        self.decode_2_features = nn.Linear(
-            embedding_size, h_size
-        )  # make edge prediction (reconstruct)
+        self.decode_1 = nn.Linear(embedding_size, embedding_size).to(device=device)
+        self.decode_2 = nn.Linear(embedding_size, y_size).to(device=device)
+
+        self.relu = nn.ReLU().to(device=device)
+
+        self.decode_1_features = nn.Linear(embedding_size, embedding_size).to(
+            device=device
+        )
+        self.decode_2_features = nn.Linear(embedding_size, h_size).to(device=device)
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -452,22 +442,26 @@ class MLP_VAE_plain(nn.Module):
                 )
 
     def forward(self, h):
+
         # encoder
         z_mu = self.encode_11(h)
         z_lsgms = self.encode_12(h)
         # reparameterize
         z_sgm = z_lsgms.mul(0.5).exp_()
-        eps = Variable(torch.randn(z_sgm.size())).cuda()
+        eps = Variable(torch.randn(z_sgm.size())).to(self.device)
         z = eps * z_sgm + z_mu
-        # decoder
+
+        # decoder for adj
         y = self.decode_1(z)
         y = self.relu(y)
         y = self.decode_2(y)
 
-        y_features = self.decode_1_features(z)
-        y_features = self.relu(y_features)
-        y_features = self.decode_2_features(y_features)
-    
+        # decoder for node features
+        # y_features = self.decode_1_features(z)
+        # y_features = self.relu(y_features)
+        # y_features = self.decode_2_features(y_features)
+        y_features = 0
+
         return y, z_mu, z_lsgms, y_features
 
     def decode(self, z):
