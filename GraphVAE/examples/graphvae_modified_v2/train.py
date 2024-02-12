@@ -31,7 +31,12 @@ def build_model(
 
     input_dim = len_num_features
     model = GraphVAE(
-        input_dim, 256, latent_dimension, max_num_nodes, num_features=num_features
+        input_dim,
+        256,
+        latent_dimension,
+        max_num_nodes,
+        num_features=num_features,
+        device=device,
     ).to(device)
     return model
 
