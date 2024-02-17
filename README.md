@@ -135,12 +135,12 @@ Ho controllato la repo, e devo dire che la gestione delle features degli archi c
 
 Secondo me conviene mantenere il metodo così com'è, almeno per adesso. Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
 
-
-
-
 ## appunti 17/02:
+
+- modificare il metodo generate del modello per generare anche la matrice delle features degli edges
+- fare il one-hot encoding dell'uscita delle features dei nodi
+- aggiungere la softmax sull'uscita delle features dei nodi
+
 - chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
 - chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
-- fare il one-hot encoding dell'uscita delle features dei nodi
-- aggiungere la softmax sull'uscita delle features dei nodi 
 - aggiungere lo spazio latente
