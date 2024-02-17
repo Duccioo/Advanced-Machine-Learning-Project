@@ -418,7 +418,7 @@ class MLP_token_plain(nn.Module):
 
 # a deterministic linear output (update: add noise)
 class MLP_VAE_plain(nn.Module):
-    def __init__(self, h_size, embedding_size, y_size, device):
+    def __init__(self, h_size, embedding_size, y_size, e_size, device):
         super(MLP_VAE_plain, self).__init__()
 
         self.device = device
@@ -434,6 +434,13 @@ class MLP_VAE_plain(nn.Module):
             device=device
         )
         self.decode_2_features = nn.Linear(embedding_size, h_size).to(device=device)
+
+        self.decode_edges_1_features = nn.Linear(embedding_size, embedding_size).to(
+            device=device
+        )
+        self.decode_edges_2_features = nn.Linear(embedding_size, e_size).to(
+            device=device
+        )
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -457,12 +464,16 @@ class MLP_VAE_plain(nn.Module):
         y = self.decode_2(y)
 
         # decoder for node features
-        # y_features = self.decode_1_features(z)
-        # y_features = self.relu(y_features)
-        # y_features = self.decode_2_features(y_features)
-        y_features = 0
+        n_features = self.decode_1_features(z)
+        n_features = self.relu(n_features)
+        n_features = self.decode_2_features(n_features)
 
-        return y, z_mu, z_lsgms, y_features
+        # decoder for edges features
+        e_features = self.decode_edges_1_features(z)
+        e_features = self.relu(e_features)
+        e_features = self.decode_edges_2_features(e_features)
+
+        return y, z_mu, z_lsgms, n_features, e_features
 
     def decode(self, z):
         with torch.no_grad():
@@ -471,11 +482,17 @@ class MLP_VAE_plain(nn.Module):
             y = self.relu(y)
             y = self.decode_2(y)
 
-            y_features = self.decode_1_features(z)
-            y_features = self.relu(y_features)
-            y_features = self.decode_2_features(y_features)
+            # decoder for node features
+            n_features = self.decode_1_features(z)
+            n_features = self.relu(n_features)
+            n_features = self.decode_2_features(n_features)
 
-        return y, y_features
+            # decoder for edges features
+            e_features = self.decode_1_features(z)
+            e_features = self.relu(e_features)
+            e_features = self.decode_2_features(e_features)
+
+        return y, n_features, e_features
 
 
 # a deterministic linear output (update: add noise)

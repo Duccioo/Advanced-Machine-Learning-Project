@@ -120,9 +120,27 @@ Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecol
 - VGAE:
 
   - [Tutorial VGAE](https://towardsdatascience.com/tutorial-on-variational-graph-auto-encoders-da9333281129)
+  - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
+  - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
+  - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
 
-- [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
-- [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
-- [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
+allora siamo andati un po' avanti con il progetto e siamo riusciti ad utilizzare il codice della repo che ci avevate inviato per generare alcune molecole.
+In input gli passiamo però solo la matrice di adiacenza e la matrice delle features dei nodi perchè non siamo ancora sicuri di come aggiungere le features degli edges, avevamo pensato prima di tutto a concatenare direttamente le features degli edges a quelle dei nodi poi abbiamo pensato di modificare la matrice di adiacenza aggiungendo le features degli edges in modo da ottenere un tensore 3d dove ad ogni edge corrisponde la codifica one-hot del legame della molecola.
+
+Volevamo poi chiedere se per ottenere la generazione del vettore delle features dei nodi sia corretto aggiungere degli strati in più nel decoder della rete perchè di default il modello restituisce solo la matrice adiacente.
+Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
+E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
+
+Ho controllato la repo, e devo dire che la gestione delle features degli archi c'è, ma è effettivamente un po' intricata: viene definita una matrice "s" (non esattamente un nome esplicativo per una variabile) ottenuta cross-correlando le features degli archi tra di loro. La matrice "s" viene utilizzata dal metodo self.mpm(), che ripete alcune iterazioni di "message passing convoluzionale" tra i nodi del grafo. Questa procedura permette di incorporare le features degli archi all'interno delle "features rielaborate" in uscita dal processo di message passing, che vengono poi compresse nel vettore latente. Il message passing è quello descritto in questo articolo: https://arxiv.org/abs/1704.01212
+
+Secondo me conviene mantenere il metodo così com'è, almeno per adesso. Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
 
 
+
+
+## appunti 17/02:
+- chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
+- chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
+- fare il one-hot encoding dell'uscita delle features dei nodi
+- aggiungere la softmax sull'uscita delle features dei nodi 
+- aggiungere lo spazio latente

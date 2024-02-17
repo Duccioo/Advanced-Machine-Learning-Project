@@ -180,6 +180,7 @@ class GraphVAE(nn.Module):
         adj_data1 = torch.zeros(self.max_num_nodes, self.max_num_nodes)
         adj_data1 = torch.FloatTensor([[1,1,1,0], [1,1,0,1], [1,0,1,0], [0,1,0,1]])
         adj_features1 = torch.Tensor([3,3,2,2])
+        
         S = self.edge_similarity_matrix(adj_data, adj_data1, adj_features, adj_features1,
                 self.deg_feature_similarity)
 

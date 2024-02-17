@@ -19,13 +19,15 @@ from data_graphvae import create_padded_graph_list, data_to_smiles
 
 def build_model(
     max_num_nodes: int = 0,
-    num_features: int = 15,
+    max_num_edges: int = 0,
+    num_nodes_features: int = 15,
+    num_edges_features: int = 4,
     len_num_features: int = 8,
     latent_dimension=5,
     device=torch.device("cpu"),
 ):
 
-    out_dim = max_num_nodes * (max_num_nodes + 1) // 2
+    # out_dim = max_num_nodes * (max_num_nodes + 1) // 2
     # print(num_features)
     # print(max_num_nodes)
 
@@ -34,8 +36,10 @@ def build_model(
         input_dim,
         256,
         latent_dimension,
-        max_num_nodes,
-        num_features=num_features,
+        max_num_nodes=max_num_nodes,
+        max_num_edges=max_num_edges,
+        num_nodes_features=num_nodes_features,
+        num_edges_features=num_edges_features,
         device=device,
     ).to(device)
     return model
@@ -50,11 +54,12 @@ def train(args, dataloader, model, epoch=50, device=torch.device("cpu")):
     for epoch in range(epoch):
         for batch_idx, data in enumerate(dataloader, 0):
 
-            features = data["features"].float().to(device)
+            features_nodes = data["features_nodes"].float().to(device)
+            features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
 
             model.zero_grad()
-            loss = model(features, adj_input)
+            loss = model(adj_input, features_edges, features_nodes)
 
             loss.backward()
             optimizer.step()
@@ -96,8 +101,8 @@ def arg_parse():
         lr=0.001,
         batch_size=32,
         num_workers=1,
-        max_num_nodes=9,
-        num_examples=1000,
+        max_num_nodes=-1,
+        num_examples=5,
         latent_dimension=5,
         epochs=10,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
@@ -115,7 +120,9 @@ def main():
     device = prog_args.device
 
     # loading dataset
-    dataset = QM9(root=os.path.join("data", "QM9"), transform=T.NormalizeFeatures())
+    dataset = QM9(
+        root=os.path.join("data", "QM9"),
+    )
     dataset = dataset[0 : prog_args.num_examples]
 
     num_graphs_raw = len(dataset)
@@ -129,8 +136,8 @@ def main():
 
     graphs_len = len(dataset)
 
-    dataset_padded = create_padded_graph_list(
-        dataset, prog_args.max_num_nodes, add_edge_features=False
+    dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
+        dataset, prog_args.max_num_nodes, add_edge_features=True, remove_hidrogen=False
     )
 
     print(
@@ -157,10 +164,16 @@ def main():
         batch_size=prog_args.batch_size,
         num_workers=prog_args.num_workers,
     )
+    print("-----")
+
+    print(graphs_train[0]["features_nodes"].shape[0])
+    print(max_num_nodes)
     model = build_model(
         max_num_nodes=max_num_nodes,
-        num_features=graphs_train[0]["features"].shape[1],
-        len_num_features=graphs_train[0]["features"].shape[0],
+        max_num_edges=max_num_edges,
+        num_nodes_features=graphs_train[0]["features_nodes"].shape[1],
+        num_edges_features=graphs_train[0]["features_edges"].shape[1],
+        len_num_features=graphs_train[0]["features_nodes"].shape[0],
         latent_dimension=prog_args.latent_dimension,
         device=device,
     )

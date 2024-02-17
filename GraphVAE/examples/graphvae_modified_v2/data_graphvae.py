@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 from torch_geometric.utils import to_networkx
+import torch_geometric.data
 import networkx as nx
 import random
 import rdkit.Chem as Chem
@@ -122,9 +123,44 @@ def pad_adjacency_matrix(adj, max_nodes):
     return padded_adj
 
 
+def remove_hidrogen_from_dataset(dataset, save_to_file: str = False):
+    # Filtra gli atomi di idrogeno
+    filtered_data = []
+    for data in dataset:
+        # Verifica se l'atomo è un idrogeno (Z=1)
+        is_hydrogen = data.z == 1
+
+        # Filtra gli edge e gli edge_index
+        edge_mask = ~is_hydrogen[data.edge_index[0]] & ~is_hydrogen[data.edge_index[1]]
+        data.edge_index = data.edge_index[:, edge_mask]
+
+        # Filtra le features dei nodi
+        data.x = data.x[~is_hydrogen]
+        data.edge_attr = data.edge_attr[edge_mask]
+
+        data.z = data.z[~is_hydrogen]
+
+        data.num_nodes = len(data.x)
+        data.num_edges = len(data.edge_attr)
+
+        # Aggiungi il grafo filtrato alla lista
+        filtered_data.append(data)
+
+    if save_to_file != False:
+        torch_geometric.data.InMemoryDataset(root=save_to_file, data_list=filtered_data)
+    return filtered_data
+
+
 def create_padded_graph_list(
-    dataset, max_num_nodes_padded=-1, add_edge_features: bool = False
+    dataset,
+    max_num_nodes_padded=-1,
+    add_edge_features: bool = True,
+    remove_hidrogen=True,
 ):
+    if remove_hidrogen:
+        # rimuovo gli atomi di idrogeno
+        dataset = remove_hidrogen_from_dataset(dataset)
+
     if max_num_nodes_padded == -1:
         max_num_nodes = max([data.num_nodes for data in dataset])
     else:
@@ -136,70 +172,46 @@ def create_padded_graph_list(
     for data in dataset:
         edge_index = data.edge_index
         edge_list = edge_index.T.tolist()
-        G = nx.Graph(edge_list)
-        adj = nx.adjacency_matrix(G).todense()
-        padded_adj = pad_adjacency_matrix(adj, max_num_nodes)
-        # print(data)
-        # print("Nodes Features", data.x)
-        # print("Edge Features", data.edge_attr)
-        # print("----------")
-        # print(max_num_edges)
-        # print(max_num_nodes)
-        # print(data.num_nodes)
-        # print(data.edge_attr.shape[0])
+        if edge_list:
+            G = nx.Graph(edge_list)
+            adj = nx.adjacency_matrix(G).todense()
+            padded_adj = pad_adjacency_matrix(adj, max_num_nodes)
+
+        else:
+            padded_adj = np.zeros((max_num_nodes, max_num_nodes))
+
         if max_num_nodes - data.num_nodes < 0:
             continue
+
+        features_nodes_padded = torch.cat(
+            [
+                data.x,
+                torch.zeros(max_num_nodes - data.num_nodes, data.num_features),
+            ]
+        )
+        features_edge_padded = data.edge_attr
         if add_edge_features:
-            padded_dimension_node = (
-                max_num_nodes - data.num_nodes
-                if max_num_edges < data.num_nodes
-                else max_num_edges - data.num_nodes
-            )
-            # print("Padded dimension node", padded_dimension_node)
-
-            padded_dimension_edge = (
-                max_num_nodes - max_num_edges
-                if max_num_edges < data.num_nodes
-                else max_num_edges - data.num_edges
-            )
-
-            # print("Padded dimension edge", padded_dimension_edge)
-
-            features_array = np.concatenate(
-                (
-                    torch.cat(
-                        [
-                            data.x,
-                            torch.zeros(padded_dimension_node, data.num_features),
-                        ]
-                    ),
-                    torch.cat(
-                        [
-                            data.edge_attr,
-                            torch.zeros(
-                                padded_dimension_edge,
-                                data.edge_attr.shape[1],
-                            ),
-                        ]
-                    ),
-                ),
-                axis=1,
-            )
-        else:
-            features_array = torch.cat(
+            features_edge_padded = torch.cat(
                 [
-                    data.x,
-                    torch.zeros(max_num_nodes - data.num_nodes, data.num_features),
+                    data.edge_attr,
+                    torch.zeros(
+                        max_num_edges - data.num_edges, data.edge_attr.shape[1]
+                    ),
                 ]
             )
 
         graph = {
-            "adj": np.array(padded_adj),
-            "features": features_array,  # Aggiunta delle features con padding
+            "adj": np.array(padded_adj, dtype=np.float32),
+            "features_nodes": features_nodes_padded,  # Aggiunta delle features con padding
+            "features_edges": features_edge_padded,
             "num_nodes": len(data.z),
+            "num_edges": data.num_edges,
         }
+
+        print(graph)
+
         graph_list.append(graph)
-    return graph_list
+    return graph_list, max_num_nodes, max_num_edges
 
 
 def data_to_smiles(
