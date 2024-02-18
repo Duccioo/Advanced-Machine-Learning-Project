@@ -57,51 +57,72 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## Question & Answer
 
-<details>
-<summary> 1) C'è differenza tra modelli GraphVAE e VGAE? </summary>
+1. C'è differenza tra modelli GraphVAE e VGAE?
+   <details>
 
-> GraphVAE e VGAE sono due modelli leggermente diversi, ma appartengono alla stessa classe (graph-based variational autoencoders) e sono del tutto intercambiabili, quindi usate pure quello che vi sembra meglio.
-> Comunque, cambiando dataset, le matrici di adiacenza cambiano. Nella repository che vi ho passato, il file "train.py" carica le matrici di adiacenza dal dataset "enzymes", mentre a voi servono quelle di QM9. Il DataLoader di QM9 che trovate in pytorch_geometric carica i grafi di QM9, ognuno dei quali contiene la sua matrice di adiacenza. Tendenzialmente, il DataLoader di QM9 dovrebbe funzionare con GraphVAE e con VGAE. Se non fosse così, ci sarà da adattare la classe GraphAdjSampler che trovate in "data.py" al formato dati di QM9. GraphAdjSampler infatti è un DataLoader scritto dagli autori della repo (in poche righe di codice) appositamente per il dataset "Enzymes".
+   > GraphVAE e VGAE sono due modelli leggermente diversi, ma appartengono alla stessa classe (graph-based variational autoencoders) e sono del tutto intercambiabili, quindi usate pure quello che vi sembra meglio.
+   > Comunque, cambiando dataset, le matrici di adiacenza cambiano. Nella repository che vi ho passato, il file "train.py" carica le matrici di adiacenza dal dataset "enzymes", mentre a voi servono quelle di QM9. Il DataLoader di QM9 che trovate in pytorch_geometric carica i grafi di QM9, ognuno dei quali contiene la sua matrice di adiacenza. Tendenzialmente, il DataLoader di QM9 dovrebbe funzionare con GraphVAE e con VGAE. Se non fosse così, ci sarà da adattare la classe GraphAdjSampler che trovate in "data.py" al formato dati di QM9. GraphAdjSampler infatti è un DataLoader scritto dagli autori della repo (in poche righe di codice) appositamente per il dataset "Enzymes".
 
-</details>
+  </details>
 
-<details>
-<summary> 2) Quali metriche conviene utilizzare per confrontare se il grafo generato è buono o no?</summary>
+2. Quali metriche conviene utilizzare per confrontare se il grafo generato è buono o no?
+   <details>
 
-> Per capire se i grafi generati sono buoni o no si può procedere in due modi: valutare Validity, Uniqueness e Novelty, e controllare che le distribuzioni di probabilità siano simili a quelle del training set. Per adesso mi limiterei a Validity, Uniqueness, Novelty. La validity si può valutare col pacchetto python RdKit con una routine che permette di scartare i grafi che violano qualche regola della Chimica e di misurare la percentuale di grafi generati che sono validi. La Uniqueness viene calcolata comparando i grafi generati uno a uno e scartando i doppioni, misurando la percentuale di molecole che non sono copie di altre. Infine, la novelty viene misurata comparando tutti i grafi validi e unici generati con i grafi del training set, ottenendo la percentuale di materiale effettivamente "nuovo" generato dalla rete.
+   > Per capire se i grafi generati sono buoni o no si può procedere in due modi: valutare Validity, Uniqueness e Novelty, e controllare che le distribuzioni di probabilità siano simili a quelle del training set. Per adesso mi limiterei a Validity, Uniqueness, Novelty. La validity si può valutare col pacchetto python RdKit con una routine che permette di scartare i grafi che violano qualche regola della Chimica e di misurare la percentuale di grafi generati che sono validi. La Uniqueness viene calcolata comparando i grafi generati uno a uno e scartando i doppioni, misurando la percentuale di molecole che non sono copie di altre. Infine, la novelty viene misurata comparando tutti i grafi validi e unici generati con i grafi del training set, ottenendo la percentuale di materiale effettivamente "nuovo" generato dalla rete.
 
-</details>
+     </details>
 
-<details>
-<summary>3) Le features dei edge vanno inserite dentro il modello?
-</summary>
+3) Le features dei edge vanno inserite dentro il modello?
+    <details>
 
-> Le edge features sono una delle matrici da passare in input al modello: il DataLoader di QM9, una volta integrato nel codice, dovrebbe automaticamente passarle al modello quando si chiama la funzione "train". Se i tipi di archi definiti da Enzymes e da QM9 non sono uguali (come sospetto), ci sta che vada aggiustato un parametro nel codice del modello per far funzionare GraphVAE sulla matrice di QM9.
+   > Le edge features sono una delle matrici da passare in input al modello: il DataLoader di QM9, una volta integrato nel codice, dovrebbe automaticamente passarle al modello quando si chiama la funzione "train". Se i tipi di archi definiti da Enzymes e da QM9 non sono uguali (come sospetto), ci sta che vada aggiustato un parametro nel codice del modello per far funzionare GraphVAE sulla matrice di QM9.
 
-</details>
+    </details>
 
-<details>
-<summary> 4) Ci siamo accorti, infine, che analizzando il dataset QM9 c'è qualcosa che non torna.
+4) Ci siamo accorti, infine, che analizzando il dataset QM9 c'è qualcosa che non torna.
+   Un esempio è la molecola numero 23 denominata "gdb_24" con una ground truth smiles = [H]CC#C[NH3+].
+   Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecola 23 otteniamo uno smiles = [H]CC#CN.
 
-Un esempio è la molecola numero 23 denominata "gdb_24" con una ground truth smiles = [H]CC#C[NH3+].
-Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecola 23 otteniamo uno smiles = [H]CC#CN.</summary>
+    <details>
 
-> Il "problema" delle SMILES è che non sono rappresentazioni univoche: la stessa molecola può essere rappresentata da un sacco di diverse SMILES, a seconda dell'atomo da cui si inizia a scrivere la stringa SMILES e a seconda delle ramificazioni che scegliamo di espandere per prime durante la visita del grafo. Esiste un modo per rendere le SMILES "canoniche", seguendo delle regole che stabiliscono quali ramificazioni espandere per prime ecc..., ma anche in questo caso non si rende univoca la rappresentazione (spesso, esistono più SMILES canoniche per una molecola).
-> Gli ioni possono essere riportati alla molecola con carica neutra corrispondente, per cui [H]CC#C[NH3+] = [H]CC#C[NH2].
-> Inoltre, gli atomi di idrogeno sono spesso superflui nell descrizione di una molecola organica, per cui [H]CC#C[NH3+] = [H]CC#C[NH2] = [H]CC#CN = CC#CN
-> Spesso, anche i generatori di grafi ignorano gli atomi di idrogeno, soprattutto modelli come i GraphVAE che non sono invarianti alle permutazioni dell'ordinamento del grafo. Non considerando gli idrogeni, infatti, si riduce di più della metà il numero di atomi presenti in una molecola, riducendo drasticamente il numero di ordinamenti possibili per il grafo molecolare che la rappresenta. Anche l'addestramento del modello, in termini di memoria occupata e tempo di esecuzione, beneficia molto dell'assenza degli atomi di idrogeno.
-> Se trovate degli idrogeni nei dati di QM9, vi conviene riscrivere il DataLoader in modo da eliminarli (sia dalla matrice delle features, che dalla matrice di adiacenza, eliminando poi anche le features degli archi che connettono gli atomi di idrogeno al resto del grafo). Penso però che il DataLoader di pytorch_geometric non carichi gli idrogeni. Potete controllare stampando la dimensione massima dei grafi che il DataLoader vi passa: se la dimensione massima è 29 ci sono gli idrogeni, se invece è 9 non ci sono.
+   > Il "problema" delle SMILES è che non sono rappresentazioni univoche: la stessa molecola può essere rappresentata da un sacco di diverse SMILES, a seconda dell'atomo da cui si inizia a scrivere la stringa SMILES e a seconda delle ramificazioni che scegliamo di espandere per prime durante la visita del grafo. Esiste un modo per rendere le SMILES "canoniche", seguendo delle regole che stabiliscono quali ramificazioni espandere per prime ecc..., ma anche in questo caso non si rende univoca la rappresentazione (spesso, esistono più SMILES canoniche per una molecola).
+   > Gli ioni possono essere riportati alla molecola con carica neutra corrispondente, per cui [H]CC#C[NH3+] = [H]CC#C[NH2].
+   > Inoltre, gli atomi di idrogeno sono spesso superflui nell descrizione di una molecola organica, per cui [H]CC#C[NH3+] = [H]CC#C[NH2] = [H]CC#CN = CC#CN
+   > Spesso, anche i generatori di grafi ignorano gli atomi di idrogeno, soprattutto modelli come i GraphVAE che non sono invarianti alle permutazioni dell'ordinamento del grafo. Non considerando gli idrogeni, infatti, si riduce di più della metà il numero di atomi presenti in una molecola, riducendo drasticamente il numero di ordinamenti possibili per il grafo molecolare che la rappresenta. Anche l'addestramento del modello, in termini di memoria occupata e tempo di esecuzione, beneficia molto dell'assenza degli atomi di idrogeno.
+   > Se trovate degli idrogeni nei dati di QM9, vi conviene riscrivere il DataLoader in modo da eliminarli (sia dalla matrice delle features, che dalla matrice di adiacenza, eliminando poi anche le features degli archi che connettono gli atomi di idrogeno al resto del grafo). Penso però che il DataLoader di pytorch_geometric non carichi gli idrogeni. Potete controllare stampando la dimensione massima dei grafi che il DataLoader vi passa: se la dimensione massima è 29 ci sono gli idrogeni, se invece è 9 non ci sono.
 
-</details>
+  </details>
 
-5. come faccio a far si che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
+5. come faccio a far sì che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
 
-## To do
+6)  Per ottenere la generazione del vettore delle features dei nodi sia corretto aggiungere degli strati in più nel decoder della rete perchè di default il modello restituisce solo la matrice adiacente.
+     <details>
 
-- [ ] aggiungere le features degli archi all'input:
-  - [x] soluzione 1: concatenare le features degli edge alle colonne delle features dei nodi
-- [x] implementare le metriche
-- [ ] latent diffusion
+    > Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
+
+     </details>
+
+7)  non siamo ancora sicuri di come aggiungere le features degli edges, avevamo pensato prima di tutto a concatenare direttamente le features degli edges a quelle dei nodi poi abbiamo pensato di modificare la matrice di adiacenza aggiungendo le features degli edges in modo da ottenere un tensore 3d dove ad ogni edge corrisponde la codifica one-hot del legame della molecola.
+     <details>
+
+    > Ho controllato la repo, e devo dire che la gestione delle features degli archi c'è, ma è effettivamente un po' intricata: viene definita una matrice "s" (non esattamente un nome esplicativo per una variabile) ottenuta cross-correlando le features degli archi tra di loro. La matrice "s" viene utilizzata dal metodo self.mpm(), che ripete alcune iterazioni di "message passing convoluzionale" tra i nodi del grafo. Questa procedura permette di incorporare le features degli archi all'interno delle "features rielaborate" in uscita dal processo di message passing, che vengono poi compresse nel vettore latente. Il message passing è quello descritto in questo articolo: https://arxiv.org/abs/1704.01212
+
+    > Secondo me conviene mantenere il metodo così com'è, almeno per adesso.
+
+     </details>
+
+8. Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
+   E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
+
+## appunti 17/02:
+
+- modificare il metodo generate del modello per generare anche la matrice delle features degli edges
+- fare il one-hot encoding dell'uscita delle features dei nodi
+- aggiungere la softmax sull'uscita delle features dei nodi
+
+- chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
+- chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
+- aggiungere lo spazio latente
 
 ## Resurces
 
@@ -123,24 +144,3 @@ Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecol
   - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
   - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
   - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
-
-allora siamo andati un po' avanti con il progetto e siamo riusciti ad utilizzare il codice della repo che ci avevate inviato per generare alcune molecole.
-In input gli passiamo però solo la matrice di adiacenza e la matrice delle features dei nodi perchè non siamo ancora sicuri di come aggiungere le features degli edges, avevamo pensato prima di tutto a concatenare direttamente le features degli edges a quelle dei nodi poi abbiamo pensato di modificare la matrice di adiacenza aggiungendo le features degli edges in modo da ottenere un tensore 3d dove ad ogni edge corrisponde la codifica one-hot del legame della molecola.
-
-Volevamo poi chiedere se per ottenere la generazione del vettore delle features dei nodi sia corretto aggiungere degli strati in più nel decoder della rete perchè di default il modello restituisce solo la matrice adiacente.
-Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
-E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
-
-Ho controllato la repo, e devo dire che la gestione delle features degli archi c'è, ma è effettivamente un po' intricata: viene definita una matrice "s" (non esattamente un nome esplicativo per una variabile) ottenuta cross-correlando le features degli archi tra di loro. La matrice "s" viene utilizzata dal metodo self.mpm(), che ripete alcune iterazioni di "message passing convoluzionale" tra i nodi del grafo. Questa procedura permette di incorporare le features degli archi all'interno delle "features rielaborate" in uscita dal processo di message passing, che vengono poi compresse nel vettore latente. Il message passing è quello descritto in questo articolo: https://arxiv.org/abs/1704.01212
-
-Secondo me conviene mantenere il metodo così com'è, almeno per adesso. Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
-
-## appunti 17/02:
-
-- modificare il metodo generate del modello per generare anche la matrice delle features degli edges
-- fare il one-hot encoding dell'uscita delle features dei nodi
-- aggiungere la softmax sull'uscita delle features dei nodi
-
-- chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
-- chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
-- aggiungere lo spazio latente
