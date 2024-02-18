@@ -130,13 +130,17 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   - [Latent Diffusion](https://github.com/CompVis/latent-diffusion)
 
-    - [Notebook on ImageNet](https://github.com/CompVis/latent-diffusion/blob/main/scripts/latent_imagenet_diffusion.ipynb)
+    - [GITHUB - Notebook on ImageNet](https://github.com/CompVis/latent-diffusion/blob/main/scripts/latent_imagenet_diffusion.ipynb)
 
   - [Hugging Face](https://huggingface.co/fusing/latent-diffusion-text2im-large)
 
-  - [Diffusers](https://github.com/huggingface/diffusers)
+  - [GITHUB REPO - Diffusers](https://github.com/huggingface/diffusers)
 
   - [List of papers and repo for Graph Diffusion](https://github.com/ChengyiLIU-cs/Generative-Diffusion-Models-on-Graphs)
+
+  - [COLAB - Diffusion for MNIST](https://colab.research.google.com/github/JeongJiHeon/ScoreDiffusionModel/blob/main/DDPM/DDPM_MNIST.ipynb)
+
+  - [Make Diffusion From scratch](https://tree.rocks/make-diffusion-model-from-scratch-easy-way-to-implement-quick-diffusion-model-e60d18fd0f2e)
 
 - VGAE:
 
