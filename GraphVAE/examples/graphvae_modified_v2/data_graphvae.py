@@ -123,7 +123,9 @@ def pad_adjacency_matrix(adj, max_nodes):
     return padded_adj
 
 
-def remove_hidrogen_from_dataset(dataset, save_to_file: str = False):
+def remove_hidrogen_from_dataset(
+    dataset, save_to_file: str = False, remove_edge_attr_duplicates=True
+):
     # Filtra gli atomi di idrogeno
     filtered_data = []
     for data in dataset:
@@ -138,13 +140,42 @@ def remove_hidrogen_from_dataset(dataset, save_to_file: str = False):
         data.x = data.x[~is_hydrogen]
         data.edge_attr = data.edge_attr[edge_mask]
 
+        edge_index = data.edge_index
+        edge_list = edge_index.T.tolist()
+        if edge_list:
+            G = nx.Graph(edge_list)
+            adj = nx.adjacency_matrix(G).todense()
+            # print("e la matrice adiacenze è....", adj)
+
         data.z = data.z[~is_hydrogen]
 
         data.num_nodes = len(data.x)
-        data.num_edges = len(data.edge_attr)
+        data.num_edges = len(data.edge_attr) // 2
 
-        # Aggiungi il grafo filtrato alla lista
-        filtered_data.append(data)
+        # rimuovo dagli attributi i duplicati
+        # if remove_edge_attr_duplicates:
+            
+        #     upper_triangular_indices = torch.triu_indices(
+        #         row=adj[i].size(0), col=adj[i].size(1), offset=1
+        #     )
+
+        #     # Estraiamo gli elementi corrispondenti dalla matrice
+        #     adj_wout_diagonal = adj[i][
+        #         upper_triangular_indices[0], upper_triangular_indices[1]
+        #     ]
+        #     # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
+        #     adj_mask = adj_wout_diagonal.repeat(4, 1).T
+
+        #     print("ADJ without diagonal ", adj_wout_diagonal)
+
+        #     print("MASCHERA = ", adj_mask)
+        #     print("RECON ADJ", edges_recon_features[i])
+        #     masked_edges_recon_features = edges_recon_features[i] * adj_mask
+        #     print("MASCHERATO =  ", masked_edges_recon_features)
+
+        if data.num_edges != 0 and data.num_nodes != 1:
+            # Aggiungi il grafo filtrato alla lista
+            filtered_data.append(data)
 
     if save_to_file != False:
         torch_geometric.data.InMemoryDataset(root=save_to_file, data_list=filtered_data)
@@ -154,7 +185,8 @@ def remove_hidrogen_from_dataset(dataset, save_to_file: str = False):
 def create_padded_graph_list(
     dataset,
     max_num_nodes_padded=-1,
-    add_edge_features: bool = True,
+    add_edge_features: bool = False,
+    one_hot_features_nodes=False,
     remove_hidrogen=True,
 ):
     if remove_hidrogen:
@@ -166,7 +198,10 @@ def create_padded_graph_list(
     else:
         max_num_nodes = max_num_nodes_padded
 
-    max_num_edges = max([data.num_edges for data in dataset])
+    # max_num_edges = max([data.num_edges for data in dataset])
+
+    # numero massimo teorico per un graph
+    max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
 
     graph_list = []
     for data in dataset:
@@ -183,6 +218,38 @@ def create_padded_graph_list(
         if max_num_nodes - data.num_nodes < 0:
             continue
 
+        if one_hot_features_nodes:
+            # Indice della colonna da codificare
+            col_index = 5
+            # Otteniamo la colonna da codificare
+            col_to_encode = data.x[:, col_index]
+
+            # Calcoliamo il numero di classi uniche nella colonna
+
+            # Applichiamo one-hot encoding utilizzando la funzione di numpy
+            # Dizionario di mapping specificato
+            mapping_dict = {
+                6: [1, 0, 0, 0],
+                7: [0, 1, 0, 0],
+                8: [0, 0, 1, 0],
+                9: [0, 0, 0, 1],
+            }
+            # Applichiamo il mapping utilizzando il metodo map di Python
+            one_hot_encoded = torch.tensor(
+                list(map(lambda x: mapping_dict[x.item()], col_to_encode))
+            )
+
+            # Sostituiamo la quinta colonna con la codifica one-hot
+            # Sostituiamo la quinta colonna con la codifica one-hot
+            data.x = torch.cat(
+                (
+                    data.x[:, :col_index],
+                    one_hot_encoded,
+                    data.x[:, col_index + 1 :],
+                ),
+                dim=1,
+            )
+
         features_nodes_padded = torch.cat(
             [
                 data.x,
@@ -191,11 +258,17 @@ def create_padded_graph_list(
         )
         features_edge_padded = data.edge_attr
         if add_edge_features:
+            # print("----------")
+            # print(padded_adj)
+            # # print(data.x)
+            # print(data.edge_attr)
+            # print(max_num_edges)
+            # print(data.num_edges)
             features_edge_padded = torch.cat(
                 [
                     data.edge_attr,
                     torch.zeros(
-                        max_num_edges - data.num_edges, data.edge_attr.shape[1]
+                        max_num_edges * 2 - data.num_edges * 2, data.edge_attr.shape[1]
                     ),
                 ]
             )
@@ -208,9 +281,11 @@ def create_padded_graph_list(
             "num_edges": data.num_edges,
         }
 
-        print(graph)
+        # print(graph)
 
         graph_list.append(graph)
+
+        print(graph["features_edges"].shape)
     return graph_list, max_num_nodes, max_num_edges
 
 

@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
+import os
+
 
 def binary_cross_entropy_weight(
     y_pred, y, has_weight=False, weight_length=1, weight_max=10
@@ -416,14 +418,33 @@ class MLP_token_plain(nn.Module):
         return y, t
 
 
+class MLP_VAE_plain_ENCODER(nn.Module):
+
+    def __init__(self, h_size, embedding_size, device):
+        super(MLP_VAE_plain_ENCODER, self).__init__()
+        self.device = device
+        self.encode_11 = nn.Linear(h_size, embedding_size).to(device=device)  # mu
+        self.encode_12 = nn.Linear(h_size, embedding_size).to(device=device)  # lsgms
+
+    def forward(self, h):
+        # encoder
+        z_mu = self.encode_11(h)
+        z_lsgms = self.encode_12(h)
+        # reparameterize
+        z_sgm = z_lsgms.mul(0.5).exp_()
+        eps = Variable(torch.randn(z_sgm.size())).to(self.device)
+        z = eps * z_sgm + z_mu
+
+        return z, z_mu, z_lsgms
+
+
 # a deterministic linear output (update: add noise)
 class MLP_VAE_plain(nn.Module):
     def __init__(self, h_size, embedding_size, y_size, e_size, device):
         super(MLP_VAE_plain, self).__init__()
 
         self.device = device
-        self.encode_11 = nn.Linear(h_size, embedding_size).to(device=device)  # mu
-        self.encode_12 = nn.Linear(h_size, embedding_size).to(device=device)  # lsgms
+        self.encoder = MLP_VAE_plain_ENCODER(h_size, embedding_size, device)
 
         self.decode_1 = nn.Linear(embedding_size, embedding_size).to(device=device)
         self.decode_2 = nn.Linear(embedding_size, y_size).to(device=device)
@@ -450,14 +471,7 @@ class MLP_VAE_plain(nn.Module):
 
     def forward(self, h):
 
-        # encoder
-        z_mu = self.encode_11(h)
-        z_lsgms = self.encode_12(h)
-        # reparameterize
-        z_sgm = z_lsgms.mul(0.5).exp_()
-        eps = Variable(torch.randn(z_sgm.size())).to(self.device)
-        z = eps * z_sgm + z_mu
-
+        z, z_mu, z_lsgms = self.encoder(h)
         # decoder for adj
         y = self.decode_1(z)
         y = self.relu(y)
@@ -474,6 +488,11 @@ class MLP_VAE_plain(nn.Module):
         e_features = self.decode_edges_2_features(e_features)
 
         return y, z_mu, z_lsgms, n_features, e_features
+
+    def save_encoder(self, path_to_save_model):
+        torch.save(
+            self.encoder.state_dict(), os.path.join(path_to_save_model, "encoder.pth")
+        )
 
     def decode(self, z):
         with torch.no_grad():

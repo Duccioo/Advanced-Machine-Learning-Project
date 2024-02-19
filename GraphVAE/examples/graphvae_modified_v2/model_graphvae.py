@@ -53,7 +53,7 @@ class GraphVAE(nn.Module):
             latent_dim,
             output_dim,
             device=device,
-            e_size=max_num_edges * self.num_edges_features,
+            e_size=2 * max_num_edges * self.num_edges_features,
         )
 
         # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
@@ -156,10 +156,10 @@ class GraphVAE(nn.Module):
                                 continue
 
                             S[i, j, a, b] = (
-                                adj[i, j]
+                                torch.abs(adj[i, j] - adj_recon[a, b])
                                 # * adj[i, i]
                                 # * adj[j, j]
-                                * adj_recon[a, b]
+                                # * adj_recon[a, b]
                                 # * adj_recon[a, a]
                                 # * adj_recon[b, b]
                             )
@@ -204,20 +204,62 @@ class GraphVAE(nn.Module):
             graph_h
         )
 
+        node_recon_features = node_recon_features.view(
+            -1, self.max_num_nodes, self.num_nodes_features
+        )
+
         edges_recon_features = edges_recon_features.view(
-            -1, self.max_num_edges, self.num_edges_features
+            -1, 2 * self.max_num_edges, self.num_edges_features
         )
 
         edges_recon_features = F.softmax(edges_recon_features, dim=2)
         # print(edges_recon_features)
-        
+
         out = F.sigmoid(h_decode)
+        print("----------------------")
+        print(out[0])
 
         # recover adj
         adj_permuted_total = adj[0].reshape(1, adj.shape[1], adj.shape[2])
+        edges_recon_features_total = edges_recon_features[0].reshape(
+            1, edges_recon_features.shape[1], edges_recon_features.shape[2]
+        )
         if out.shape[0] > 1:
             for i in range(0, out.shape[0]):
                 recon_adj_lower = self.recover_adj_lower(out[i], self.device)
+
+                print("ADJ ", adj[i])
+                # Otteniamo gli indici della parte triangolare superiore senza la diagonale
+                upper_triangular_indices = torch.triu_indices(
+                    row=adj[i].size(0), col=adj[i].size(1), offset=1
+                )
+
+                # Estraiamo gli elementi corrispondenti dalla matrice
+                adj_wout_diagonal = adj[i][
+                    upper_triangular_indices[0], upper_triangular_indices[1]
+                ]
+                # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
+                adj_mask = adj_wout_diagonal.repeat(4, 1).T
+
+                print("ADJ without diagonal ", adj_wout_diagonal)
+
+                print("MASCHERA = ", adj_mask)
+                print("RECON ADJ", edges_recon_features[i])
+                print("MASK SHAPE", adj_mask.repeat(2, 1).shape)
+                adj_mask_repaet = adj_mask.repeat(2, 1)
+                masked_edges_recon_features = edges_recon_features[i] * adj_mask_repaet
+                print("MASCHERATO =  ", masked_edges_recon_features)
+
+                edges_recon_features_total = torch.cat(
+                    (
+                        edges_recon_features_total,
+                        masked_edges_recon_features.reshape(
+                            1, -1, edges_recon_features.shape[2]
+                        ),
+                    ),
+                    dim=0,
+                )
+
                 recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
                 # print(adj[i].shape)
@@ -274,7 +316,19 @@ class GraphVAE(nn.Module):
         loss_kl /= self.max_num_nodes * self.max_num_nodes  # normalize
         # print("kl: ", loss_kl.item())
 
-        loss = adj_recon_loss + loss_kl
+        # per quanto riguarda le features degli edge:
+        print(edges_features.shape)
+        print(edges_recon_features.shape)
+
+        loss_edge = F.mse_loss(edges_recon_features, edges_features)
+        # - MSE tra il target e quello generato stando attenti al numero di archi considerati
+        # mascherato con il grafo originale
+
+        # per quanto riguarda le features dei nodi:
+        # - MSE di nuovo
+        loss_node = F.mse_loss(node_recon_features, nodes_features)
+
+        loss = adj_recon_loss + loss_kl + loss_edge + loss_node
 
         # end_forward = time.time() - start_forward
         # print("FORWARD: ", end_vae, end_adj_true_vectorization, end_forward)
@@ -334,16 +388,16 @@ class GraphVAE(nn.Module):
         classifications = torch.bucketize(output_node_features[:, 5:6], bins)
 
         # output_node_features[:, 5] = classifications.squeeze_()
-        
+
         print(output_edge_features.shape)
-        
+
         output_edge_features = output_edge_features.view(
             -1, self.max_num_edges, self.num_edges_features
         )
 
         output_edge_features = F.softmax(output_edge_features, dim=2)
         print(output_edge_features.shape)
-        
+
         # Crea una matrice one-hot utilizzando max_indices
         # print("output nodes ", output_node_features.shape)
 
@@ -357,12 +411,12 @@ class GraphVAE(nn.Module):
         # print("forward completato")
         recon_adj_lower = self.recover_adj_lower(out_tensor, device=self.device)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-        
-        
+
         # print("adj ripresa")
         # print(recon_adj_tensor)
 
         return recon_adj_tensor, output_node_features, output_edge_features
 
 
-
+    def save_vae_encoder(self, path):
+        self.vae.save_encoder(path)

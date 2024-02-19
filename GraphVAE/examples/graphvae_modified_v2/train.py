@@ -47,16 +47,22 @@ def build_model(
 
 def train(args, dataloader, model, epoch=50, device=torch.device("cpu")):
     LR_milestones = [500, 1000]
+    
     optimizer = optim.Adam(list(model.parameters()), lr=args.lr)
     scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=args.lr)
 
     model.train()
     for epoch in range(epoch):
         for batch_idx, data in enumerate(dataloader, 0):
+            
 
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
+            # print("----------------")
+            # print(adj_input)
+            # print(features_edges)
+            # print(features_nodes)
 
             model.zero_grad()
             loss = model(adj_input, features_edges, features_nodes)
@@ -69,8 +75,11 @@ def train(args, dataloader, model, epoch=50, device=torch.device("cpu")):
 
 
 def count_edges(adj_matrix):
-    num_edges = torch.sum(adj_matrix) / 2  # Diviso per 2 perché la matrice adiacente è simmetrica
+    num_edges = (
+        torch.sum(adj_matrix) / 2
+    )  # Diviso per 2 perché la matrice adiacente è simmetrica
     return num_edges
+
 
 def arg_parse():
     parser = argparse.ArgumentParser(description="GraphVAE arguments.")
@@ -103,12 +112,12 @@ def arg_parse():
         dataset="enzymes",
         feature_type="struct",
         lr=0.001,
-        batch_size=32,
+        batch_size=5,
         num_workers=1,
         max_num_nodes=-1,
-        num_examples=12,
+        num_examples=20,
         latent_dimension=5,
-        epochs=15,
+        epochs=1,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
@@ -141,7 +150,11 @@ def main():
     graphs_len = len(dataset)
 
     dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
-        dataset, prog_args.max_num_nodes, add_edge_features=True, remove_hidrogen=False
+        dataset,
+        prog_args.max_num_nodes,
+        add_edge_features=True,
+        remove_hidrogen=True,
+        one_hot_features_nodes=True,
     )
 
     print(
@@ -160,7 +173,6 @@ def main():
         )
     )
     print("max number node: {}".format(max_num_nodes))
-    print("-----------")
 
     # ------ TRAINING -------
     dataset_loader = torch.utils.data.DataLoader(
@@ -168,10 +180,12 @@ def main():
         batch_size=prog_args.batch_size,
         num_workers=prog_args.num_workers,
     )
-    print("-----")
+    print("-------- TRAINING: --------")
 
-    print(graphs_train[0]["features_nodes"].shape[0])
+    print(max_num_edges)
     print(max_num_nodes)
+    print("num edges features", graphs_train[0]["features_edges"].shape[1])
+    print("num nodes features", graphs_train[0]["features_nodes"].shape[1])
     model = build_model(
         max_num_nodes=max_num_nodes,
         max_num_edges=max_num_edges,
@@ -204,10 +218,13 @@ def main():
     print(features_edges)
     # smiles = data_to_smiles(features_nodes, features_edges, rounded_matrix)
     # print(smiles)
-    
+
     print("MATCH DELLE MATRICI")
     print(features_edges.shape)
     print(count_edges(rounded_adj_matrix))
+    
+    model.save_vae_encoder("graphvae_modified_v2")
+    
 
 
 if __name__ == "__main__":

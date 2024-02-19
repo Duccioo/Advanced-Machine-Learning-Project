@@ -116,18 +116,35 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## appunti e domande 19/02:
 
-- chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
+- [x] chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
 
-- chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
+- [x] chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
 
-- problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features
+  - [x] aggiungere la MSE per i node features e gli edge features e controllare il numero di edge
 
-- fare il one-hot encoding dell'uscita delle features dei nodi
+- problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features:
 
-  - aggiungere la softmax sull'uscita delle features dei nodi
+  - [x] aggiungere il numero di edge dal calcolo del numero massimo dei nodi
+
+- [x] fare il one-hot encoding dell'uscita delle features dei nodi
+
+  - [ ] aggiungere la softmax sull'uscita delle features dei nodi (solo GENERAZIONE)
+
+- [x] eliminare le molecole formate da un solo atomo
+
+- [ ] Dimezzare le dimensioni delle features degli edge poichè si ripetono 2 volte?
+
+- sulla codifica della matrice adiacente: ha senso fare la predizione anche della diagonale se tanto i self-loop non ci sono?
+
+  - [ ] in caso affermativo ridurre la dimensione di output della vae e aggiunstare la ricostruzione della matrice adiacente da quella codificata
+
+- [x] Salvare il modello dell'encoder
 
 - aggiungere latent diffusion:
+
+  - Allenare prima il VAE, staccare e salvarsi l'encoder
   - quale loss utilizzare? quella del diffusion model o quella del graphVAE?
+  - magari usare rumore normalizzato
 
 ## Resurces
 
