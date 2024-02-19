@@ -68,6 +68,10 @@ def train(args, dataloader, model, epoch=50, device=torch.device("cpu")):
         print("Epoch: ", epoch, ", Loss: ", round(loss.item(), 4))
 
 
+def count_edges(adj_matrix):
+    num_edges = torch.sum(adj_matrix) / 2  # Diviso per 2 perché la matrice adiacente è simmetrica
+    return num_edges
+
 def arg_parse():
     parser = argparse.ArgumentParser(description="GraphVAE arguments.")
 
@@ -102,9 +106,9 @@ def arg_parse():
         batch_size=32,
         num_workers=1,
         max_num_nodes=-1,
-        num_examples=5,
+        num_examples=12,
         latent_dimension=5,
-        epochs=10,
+        epochs=15,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
@@ -186,20 +190,24 @@ def main():
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():
-        adj, features_nodes, features_edges = model.generate(z, device="cuda")
+        adj, features_nodes, features_edges = model.generate(z, device=device)
 
-    rounded_matrix = torch.round(adj)
-    features_nodes = torch.round(features_nodes)
+    rounded_adj_matrix = torch.round(adj)
+    # features_nodes = torch.round(features_nodes)
     # features_edges = torch.round(features_edges)
     print("ORIGINAL MATRIX")
     print(graphs_train[0]["adj"])
     print("##" * 10)
     print("Predicted MATRIX")
-    print(rounded_matrix)
+    print(rounded_adj_matrix)
     print(features_nodes)
-    # print(features_edges)
+    print(features_edges)
     # smiles = data_to_smiles(features_nodes, features_edges, rounded_matrix)
     # print(smiles)
+    
+    print("MATCH DELLE MATRICI")
+    print(features_edges.shape)
+    print(count_edges(rounded_adj_matrix))
 
 
 if __name__ == "__main__":

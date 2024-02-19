@@ -208,14 +208,16 @@ class GraphVAE(nn.Module):
             -1, self.max_num_edges, self.num_edges_features
         )
 
-        edges_recon_features = F.softmax(edges_recon_features, dim=1)
+        edges_recon_features = F.softmax(edges_recon_features, dim=2)
+        # print(edges_recon_features)
+        
         out = F.sigmoid(h_decode)
 
         # recover adj
         adj_permuted_total = adj[0].reshape(1, adj.shape[1], adj.shape[2])
         if out.shape[0] > 1:
             for i in range(0, out.shape[0]):
-                recon_adj_lower = self.recover_adj_lower(out[i])
+                recon_adj_lower = self.recover_adj_lower(out[i], self.device)
                 recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
                 # print(adj[i].shape)
@@ -255,9 +257,7 @@ class GraphVAE(nn.Module):
                     (adj_permuted_total, adj_permuted.unsqueeze(0)), dim=0
                 )
 
-
         # print('Assignment: ', assignment)
-
 
         adj_vectorized = adj_permuted[
             torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
@@ -278,7 +278,6 @@ class GraphVAE(nn.Module):
 
         # end_forward = time.time() - start_forward
         # print("FORWARD: ", end_vae, end_adj_true_vectorization, end_forward)
-        
 
         return loss
 
@@ -317,12 +316,14 @@ class GraphVAE(nn.Module):
         # print(input_features)
         # graph_h = input_features.view(-1, self.max_num_nodes * self.num_features)
         # h_decode, z_mu, z_lsgms = self.vae(graph_h)
-        h_decode, output_features = self.vae.decode(z)
-        output_features = output_features.view(
-            -1, self.input_dimension, self.num_features
+        h_decode, output_node_features, output_edge_features = self.vae.decode(z)
+        output_node_features = output_node_features.view(
+            -1, self.input_dimension, self.num_nodes_features
         )
         # print("output features ", output_features.shape)
-        output_node_features = output_features[:, :, : self.num_features].squeeze_()
+        output_node_features = output_node_features[
+            :, :, : self.num_nodes_features
+        ].squeeze_()
         # Definizione dei bin per la classificazione
         num_bins = 5
         bins = torch.linspace(0, 1, num_bins + 1).to(device)  # 5 bin per 5 classi
@@ -333,12 +334,19 @@ class GraphVAE(nn.Module):
         classifications = torch.bucketize(output_node_features[:, 5:6], bins)
 
         # output_node_features[:, 5] = classifications.squeeze_()
+        
+        print(output_edge_features.shape)
+        
+        output_edge_features = output_edge_features.view(
+            -1, self.max_num_edges, self.num_edges_features
+        )
 
-        output_edge_features = output_features[:, :, self.num_features - 4 :].squeeze_()
-        max_indices = torch.argmax(output_edge_features, dim=1)
+        output_edge_features = F.softmax(output_edge_features, dim=2)
+        print(output_edge_features.shape)
+        
         # Crea una matrice one-hot utilizzando max_indices
-        output_edge_features = torch.eye(4)[max_indices.detach().to(device="cpu")]
         # print("output nodes ", output_node_features.shape)
+
         # print("output edges ", output_edge_features.shape)
 
         out = F.sigmoid(h_decode)
@@ -347,9 +355,14 @@ class GraphVAE(nn.Module):
         # print(out_tensor.shape)
 
         # print("forward completato")
-        recon_adj_lower = self.recover_adj_lower(out_tensor)
+        recon_adj_lower = self.recover_adj_lower(out_tensor, device=self.device)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
+        
+        
         # print("adj ripresa")
         # print(recon_adj_tensor)
 
         return recon_adj_tensor, output_node_features, output_edge_features
+
+
+

@@ -114,15 +114,20 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 8. Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
    E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
 
-## appunti 17/02:
-
-- modificare il metodo generate del modello per generare anche la matrice delle features degli edges
-- fare il one-hot encoding dell'uscita delle features dei nodi
-- aggiungere la softmax sull'uscita delle features dei nodi
+## appunti e domande 19/02:
 
 - chiedere come calcolare la matrice di similarità tra le matrici di adiacenza e i vettori delle features degli edges
+
 - chidere se è necessario modificare la loss dopo aver aggiunto i nuovi strati per le features dei nodi/edges
-- aggiungere lo spazio latente
+
+- problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features
+
+- fare il one-hot encoding dell'uscita delle features dei nodi
+
+  - aggiungere la softmax sull'uscita delle features dei nodi
+
+- aggiungere latent diffusion:
+  - quale loss utilizzare? quella del diffusion model o quella del graphVAE?
 
 ## Resurces
 

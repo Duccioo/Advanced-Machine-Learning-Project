@@ -488,9 +488,9 @@ class MLP_VAE_plain(nn.Module):
             n_features = self.decode_2_features(n_features)
 
             # decoder for edges features
-            e_features = self.decode_1_features(z)
+            e_features = self.decode_edges_1_features(z)
             e_features = self.relu(e_features)
-            e_features = self.decode_2_features(e_features)
+            e_features = self.decode_edges_2_features(e_features)
 
         return y, n_features, e_features
 
