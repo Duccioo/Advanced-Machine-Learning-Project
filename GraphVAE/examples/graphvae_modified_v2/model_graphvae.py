@@ -138,9 +138,6 @@ class GraphVAE(nn.Module):
 
                     for a in range(self.max_num_nodes):
 
-                        # print(i, a)
-                        # print(adj[i, i])
-                        # print(adj_recon[a, a])
                         # calcolo la similarità nei loop
                         S[i, i, a, a] = (
                             adj[i, i]
@@ -213,11 +210,8 @@ class GraphVAE(nn.Module):
         )
 
         edges_recon_features = F.softmax(edges_recon_features, dim=2)
-        # print(edges_recon_features)
 
         out = F.sigmoid(h_decode)
-        print("----------------------")
-        print(out[0])
 
         # recover adj
         adj_permuted_total = adj[0].reshape(1, adj.shape[1], adj.shape[2])
@@ -228,7 +222,6 @@ class GraphVAE(nn.Module):
             for i in range(0, out.shape[0]):
                 recon_adj_lower = self.recover_adj_lower(out[i], self.device)
 
-                print("ADJ ", adj[i])
                 # Otteniamo gli indici della parte triangolare superiore senza la diagonale
                 upper_triangular_indices = torch.triu_indices(
                     row=adj[i].size(0), col=adj[i].size(1), offset=1
@@ -241,14 +234,8 @@ class GraphVAE(nn.Module):
                 # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
                 adj_mask = adj_wout_diagonal.repeat(4, 1).T
 
-                print("ADJ without diagonal ", adj_wout_diagonal)
-
-                print("MASCHERA = ", adj_mask)
-                print("RECON ADJ", edges_recon_features[i])
-                print("MASK SHAPE", adj_mask.repeat(2, 1).shape)
                 adj_mask_repaet = adj_mask.repeat(2, 1)
                 masked_edges_recon_features = edges_recon_features[i] * adj_mask_repaet
-                print("MASCHERATO =  ", masked_edges_recon_features)
 
                 edges_recon_features_total = torch.cat(
                     (
@@ -262,17 +249,12 @@ class GraphVAE(nn.Module):
 
                 recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-                # print(adj[i].shape)
-                # print(recon_adj_tensor.shape)
-                # print(edges_features[i].shape)
-                # print(edges_recon_features[i].shape)
-
                 S = self.edge_similarity_matrix(
                     adj[i],
                     recon_adj_tensor,
                     edges_features[i],
                     edges_recon_features[i],
-                    self.deg_feature_similarity_2,
+                    self.deg_feature_similarity,
                 )
 
                 # initialization strategies
@@ -378,16 +360,6 @@ class GraphVAE(nn.Module):
         output_node_features = output_node_features[
             :, :, : self.num_nodes_features
         ].squeeze_()
-        # Definizione dei bin per la classificazione
-        num_bins = 5
-        bins = torch.linspace(0, 1, num_bins + 1).to(device)  # 5 bin per 5 classi
-        # Classificazione dei valori del vettore in base ai bin
-        # classifications = np.digitize(
-        #     output_node_features[:, 5:6].detach().to(device="cpu"), bins
-        # )
-        classifications = torch.bucketize(output_node_features[:, 5:6], bins)
-
-        # output_node_features[:, 5] = classifications.squeeze_()
 
         print(output_edge_features.shape)
 
@@ -406,17 +378,10 @@ class GraphVAE(nn.Module):
         out = F.sigmoid(h_decode)
         out_tensor = out.data
 
-        # print(out_tensor.shape)
-
-        # print("forward completato")
         recon_adj_lower = self.recover_adj_lower(out_tensor, device=self.device)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-        # print("adj ripresa")
-        # print(recon_adj_tensor)
-
         return recon_adj_tensor, output_node_features, output_edge_features
-
 
     def save_vae_encoder(self, path):
         self.vae.save_encoder(path)

@@ -221,10 +221,8 @@ def main():
 
     print("MATCH DELLE MATRICI")
     print(features_edges.shape)
-    print(count_edges(rounded_adj_matrix))
-    
+    print(count_edges(rounded_adj_matrix))    
     model.save_vae_encoder("graphvae_modified_v2")
-    
 
 
 if __name__ == "__main__":
