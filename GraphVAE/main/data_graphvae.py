@@ -58,6 +58,7 @@ class OneHotEncoding(BaseTransform):
         # Applichiamo one-hot encoding utilizzando la funzione di numpy
         # Dizionario di mapping specificato
         mapping_dict = {
+            1: [0, 0, 0, 0],
             6: [1, 0, 0, 0],
             7: [0, 1, 0, 0],
             8: [0, 0, 1, 0],
@@ -72,6 +73,7 @@ class OneHotEncoding(BaseTransform):
             1: [0, 1, 0, 0],
             2: [0, 0, 1, 0],
             3: [0, 0, 0, 1],
+            4: [0, 0, 0, 0],
         }
 
         data.x = one_hot_encoding(data.x, col_index, mapping_dict)
@@ -85,13 +87,11 @@ def one_hot_encoding(matrix, col_index, mapping_dict):
 
     # Otteniamo la colonna da codificare
     col_to_encode = matrix[:, col_index]
-
     # Applichiamo il mapping utilizzando il metodo map di Python
     one_hot_encoded = torch.tensor(
-        list(map(lambda x: mapping_dict[x.item()], col_to_encode))
+        list(map(lambda x: mapping_dict[int(x.item())], col_to_encode))
     )
 
-    # Sostituiamo la quinta colonna con la codifica one-hot
     # Sostituiamo la quinta colonna con la codifica one-hot
     matrix = torch.cat(
         (

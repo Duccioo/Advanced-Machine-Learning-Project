@@ -117,6 +117,7 @@ class GraphVAE(nn.Module):
             self.max_num_nodes,
             self.max_num_nodes,
             self.max_num_nodes,
+            device=self.device,
         )
 
         for i in range(self.max_num_nodes):
@@ -152,7 +153,9 @@ class GraphVAE(nn.Module):
     def mpm(self, x_init, S, max_iters=50):
         x = x_init
         for it in range(max_iters):
-            x_new = torch.zeros(self.max_num_nodes, self.max_num_nodes)
+            x_new = torch.zeros(
+                self.max_num_nodes, self.max_num_nodes, device=self.device
+            )
             for i in range(self.max_num_nodes):
                 for a in range(self.max_num_nodes):
                     x_new[i, a] = x[i, a] * S[i, i, a, a]
@@ -200,40 +203,38 @@ class GraphVAE(nn.Module):
         out = F.sigmoid(h_decode)
 
         # recover adj
-        adj_permuted_total = adj[0].reshape(1, adj.shape[1], adj.shape[2])
-        edges_recon_features_total = edges_recon_features[0].reshape(
-            1, edges_recon_features.shape[1], edges_recon_features.shape[2]
+        adj_permuted_total = torch.empty(out.shape[0], adj.shape[1], adj.shape[2])
+        edges_recon_features_total = torch.empty(
+            out.shape[0], edges_recon_features.shape[1], edges_recon_features.shape[2]
         )
+
+        upper_triangular_indices = torch.triu_indices(
+            row=adj[0].size(0),
+            col=adj[0].size(1),
+            offset=1,
+            device=self.device,
+        )
+
         if out.shape[0] >= 1:
             for i in range(0, out.shape[0]):
                 recon_adj_lower = self.recover_adj_lower(out[i], self.device)
 
                 # Otteniamo gli indici della parte triangolare superiore senza la diagonale
-                upper_triangular_indices = torch.triu_indices(
-                    row=adj[i].size(0), col=adj[i].size(1), offset=1
-                )
 
                 # Estraiamo gli elementi corrispondenti dalla matrice
                 adj_wout_diagonal = adj[i][
                     upper_triangular_indices[0], upper_triangular_indices[1]
                 ]
                 # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
-                adj_mask = adj_wout_diagonal.repeat(4, 1).T
+                adj_mask = adj_wout_diagonal.repeat(edges_recon_features.shape[2], 1).T
 
                 masked_edges_recon_features = edges_recon_features[i] * adj_mask
 
-                edges_recon_features_total = torch.cat(
-                    (
-                        edges_recon_features_total,
-                        masked_edges_recon_features.reshape(
-                            1, -1, edges_recon_features.shape[2]
-                        ),
-                    ),
-                    dim=0,
+                edges_recon_features_total[i] = masked_edges_recon_features.reshape(
+                    -1, edges_recon_features.shape[2]
                 )
 
                 recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-
                 S = self.edge_similarity_matrix(
                     adj[i],
                     recon_adj_tensor,
@@ -245,33 +246,45 @@ class GraphVAE(nn.Module):
                 # initialization strategies
                 init_corr = 1 / self.max_num_nodes
                 init_assignment = (
-                    torch.ones(self.max_num_nodes, self.max_num_nodes) * init_corr
+                    torch.ones(
+                        self.max_num_nodes, self.max_num_nodes, device=self.device
+                    )
+                    * init_corr
                 )
                 # init_assignment = torch.FloatTensor(4, 4)
                 # init.uniform(init_assignment)
                 assignment = self.mpm(init_assignment, S)
                 # matching
+                print("qui?")
+
                 # use negative of the assignment score since the alg finds min cost flow
                 row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-                    -assignment.detach().numpy()
+                    -assignment.detach().cpu().numpy()
                 )
+
                 # print("row: ", row_ind)
                 # print("col: ", col_ind)
                 # order row index according to col index
 
-                adj_data = adj[i]
-                adj_permuted = self.permute_adj(adj_data, row_ind, col_ind)
+                adj_permuted = self.permute_adj(adj[i], row_ind, col_ind)
 
-                adj_permuted_total = torch.cat(
-                    (adj_permuted_total, adj_permuted.unsqueeze(0)), dim=0
-                )
+                adj_permuted_total[i] = adj_permuted.unsqueeze(0)
+
+                print("allora è questo")
 
         # print('Assignment: ', assignment)
+        print("max num nodes: ", self.max_num_nodes)
+        print("max edges nodes: ", self.max_num_edges)
 
-        adj_vectorized = adj_permuted[
+        print(adj.shape)
+        print(edges_features.shape)
+
+        print(adj_permuted_total.shape)
+        print(edges_recon_features_total.shape)
+
+        adj_vectorized = adj_permuted_total[
             torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
         ].squeeze_()  # qui si va a trasformare la matrice adiacente in un vettore prendento la triangolare superiore della matrice adiacente.
-        # end_adj_true_vectorization = time.time() - start_adj_true_vectorization
 
         adj_recon_loss = F.binary_cross_entropy(out[0], adj_vectorized)
 
@@ -287,7 +300,7 @@ class GraphVAE(nn.Module):
         # print(edges_features.shape)
         # print(edges_recon_features.shape)
 
-        loss_edge = F.mse_loss(edges_recon_features, edges_features)
+        loss_edge = F.mse_loss(edges_recon_features_total, edges_features)
         # - MSE tra il target e quello generato stando attenti al numero di archi considerati
         # mascherato con il grafo originale
 
@@ -332,7 +345,6 @@ class GraphVAE(nn.Module):
         # Variable(torch.tensor(input_features, dtype=torch.float32))
         # z = torch.tensor(z, dtype=torch.float32).cuda()
         z = z.clone().detach().to(dtype=torch.float32).to(device=device)
-        print("z shape", z.shape)
         # input_features = np.array(input_features)
         # print(input_features)
         # graph_h = input_features.view(-1, self.max_num_nodes * self.num_features)

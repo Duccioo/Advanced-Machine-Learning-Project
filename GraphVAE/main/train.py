@@ -26,7 +26,14 @@ from data_graphvae import (
     CostumPad,
     FilterMaxNodes,
 )
-from utils import pit
+from utils import (
+    pit,
+    load_from_checkpoint,
+    save_checkpoint,
+    save_model,
+    log_and_plot_metrics,
+    latest_checkpoint,
+)
 
 
 def build_model(
@@ -57,13 +64,44 @@ def build_model(
     return model
 
 
-def train(args, train_loader, val_loader, model, epochs=50, device=torch.device("cpu")):
+def train(
+    args,
+    train_loader,
+    val_loader,
+    model,
+    epochs=50,
+    checkpoints_dir="checkpoints",
+    device=torch.device("cpu"),
+):
     LR_milestones = [500, 1000]
 
     optimizer = optim.Adam(list(model.parameters()), lr=args.lr)
     scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=args.lr)
 
-    for epoch in pit(range(epochs), color="green", desc="Epochs"):
+    batch_idx = 0
+    epochs_saved = 0
+    steps_saved = 0
+
+    # # Checkpoint load
+    # if os.path.isdir(checkpoints_dir):
+    #     print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
+    #     checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
+
+    # if checkpoint is not None:
+    #     if os.path.isfile(checkpoint):
+    #         step_saved, epochs_saved = load_from_checkpoint(
+    #             checkpoint,
+    #             model,
+    #             optimizer,
+    #         )
+    #         print(
+    #             f"start from checkpoint at step {step_saved} and epoch {epochs_saved}"
+    #         )
+
+    for epoch in pit(range(epochs_saved, epochs), color="green", desc="Epochs"):
+        # if epoch < epochs_saved:
+        #     continue
+
         model.train()
         running_loss = 0.0
         for i, data in pit(
@@ -142,7 +180,7 @@ def arg_parse():
         batch_size=10,
         num_workers=1,
         max_num_nodes=-1,
-        num_examples=150,
+        num_examples=5,
         latent_dimension=8,
         epochs=20,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
@@ -164,8 +202,8 @@ def main():
     # loading dataset
     dataset = QM9(
         root=os.path.join("data", "QM9"),
-        pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
         pre_filter=T.Compose([FilterSingleton(), FilterMaxNodes(filter_max_num_nodes)]),
+        pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
         transform=T.Compose([ToTensor()]),
     )
 
