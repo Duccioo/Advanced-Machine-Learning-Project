@@ -53,7 +53,7 @@ class GraphVAE(nn.Module):
             latent_dim,
             output_dim,
             device=device,
-            e_size=2 * max_num_edges * self.num_edges_features,
+            e_size=max_num_edges * self.num_edges_features,
         )
 
         # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
@@ -108,19 +108,6 @@ class GraphVAE(nn.Module):
     def deg_feature_similarity_2(self, f1, f2):
         edge_similarity = F.cosine_similarity(f1, f2, dim=0)
         return edge_similarity
-
-    def edge_similarity_matrix_2(self, adj_1, adj_2, features_1, features_2):
-        # Calcola la similarità tra features degli edge utilizzando il coseno
-        edge_similarity = F.cosine_similarity(features_1, features_2, dim=1)
-
-        # Calcola la similarità tra matrici adiacenti utilizzando il coseno
-        adj_similarity = F.cosine_similarity(adj_1.view(1, -1), adj_2.view(1, -1))
-
-        # print("adj_similarity", adj_similarity.shape)
-
-        # Calcola la matrice di similarità degli edge
-        edge_similarity_matrix = edge_similarity * adj_similarity
-        return edge_similarity_matrix
 
     def edge_similarity_matrix(
         self, adj, adj_recon, matching_features, matching_features_recon, sim_func
@@ -206,11 +193,10 @@ class GraphVAE(nn.Module):
         )
 
         edges_recon_features = edges_recon_features.view(
-            -1, 2 * self.max_num_edges, self.num_edges_features
+            -1, self.max_num_edges, self.num_edges_features
         )
 
         edges_recon_features = F.softmax(edges_recon_features, dim=2)
-
         out = F.sigmoid(h_decode)
 
         # recover adj
@@ -218,7 +204,7 @@ class GraphVAE(nn.Module):
         edges_recon_features_total = edges_recon_features[0].reshape(
             1, edges_recon_features.shape[1], edges_recon_features.shape[2]
         )
-        if out.shape[0] > 1:
+        if out.shape[0] >= 1:
             for i in range(0, out.shape[0]):
                 recon_adj_lower = self.recover_adj_lower(out[i], self.device)
 
@@ -234,8 +220,7 @@ class GraphVAE(nn.Module):
                 # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
                 adj_mask = adj_wout_diagonal.repeat(4, 1).T
 
-                adj_mask_repaet = adj_mask.repeat(2, 1)
-                masked_edges_recon_features = edges_recon_features[i] * adj_mask_repaet
+                masked_edges_recon_features = edges_recon_features[i] * adj_mask
 
                 edges_recon_features_total = torch.cat(
                     (
@@ -254,7 +239,7 @@ class GraphVAE(nn.Module):
                     recon_adj_tensor,
                     edges_features[i],
                     edges_recon_features[i],
-                    self.deg_feature_similarity,
+                    self.deg_feature_similarity_2,
                 )
 
                 # initialization strategies
@@ -299,8 +284,8 @@ class GraphVAE(nn.Module):
         # print("kl: ", loss_kl.item())
 
         # per quanto riguarda le features degli edge:
-        print(edges_features.shape)
-        print(edges_recon_features.shape)
+        # print(edges_features.shape)
+        # print(edges_recon_features.shape)
 
         loss_edge = F.mse_loss(edges_recon_features, edges_features)
         # - MSE tra il target e quello generato stando attenti al numero di archi considerati

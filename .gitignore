@@ -3,7 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 GraphVAE/examples/models
+GraphVAE/data
+GraphVAE/dataset
 .vscode
+
 # C extensions
 *.so
 GraphVAE/examples/data
