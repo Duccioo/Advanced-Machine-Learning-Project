@@ -41,7 +41,7 @@ def check_base_dir(*args):
 
 
 # ------------------------------------SAVING & LOADING-----------------------------------------
-def load_from_checkpoint(checkpoint_path, model, optimizer=None):
+def load_from_checkpoint(checkpoint_path, model, optimizer=None, schedule=None):
     """
     Load model from checkpoint, return the step, epoch and model step saved in the file.
 
@@ -49,6 +49,7 @@ def load_from_checkpoint(checkpoint_path, model, optimizer=None):
         - checkpoint_path (str): path to checkpoint
         - model (nn.Module): model to load
         - optimizer(torch.optim): optimizer for model
+        - schedule
     """
     data = torch.load(checkpoint_path, map_location="cpu")
     model.load_state_dict(data["model"])
@@ -56,16 +57,14 @@ def load_from_checkpoint(checkpoint_path, model, optimizer=None):
     if optimizer is not None:
         optimizer.load_state_dict(data["optimizer"])
 
-    return (data["step"], data["epoch"], data["step"])
+    if schedule is not None:
+        schedule.load_state_dict(data["schedule"])
+
+    return (data["step"], data["epoch"])
 
 
 def save_checkpoint(
-    checkpoint_path,
-    checkpoint_name,
-    model,
-    step,
-    epoch,
-    optimizer=None,
+    checkpoint_path, checkpoint_name, model, step, epoch, optimizer=None, schedule=None
 ):
     """
     Save model to a checkpoint file.
@@ -90,6 +89,13 @@ def save_checkpoint(
                 "optimizer": optimizer.state_dict(),
             }
         )
+    if schedule is not None:
+        state_dict.update(
+            {
+                "schedule": schedule.state_dict(),
+            }
+        )
+
     if os.path.exists(checkpoint_path):
         torch.save(state_dict, os.path.join(checkpoint_path, checkpoint_name))
 

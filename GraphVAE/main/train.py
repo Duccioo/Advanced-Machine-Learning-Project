@@ -13,6 +13,9 @@ from torch.utils.data import random_split
 import torch_geometric.transforms as T
 from torch_geometric.datasets import QM9
 
+from rdkit import Chem
+from rdkit.Chem import Draw
+
 
 # ---
 from model_graphvae import GraphVAE
@@ -80,36 +83,49 @@ def train(
 
     batch_idx = 0
     epochs_saved = 0
+    checkpoint = None
     steps_saved = 0
+    running_steps = 0
 
-    # # Checkpoint load
-    # if os.path.isdir(checkpoints_dir):
-    #     print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
-    #     checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
+    # Checkpoint load
+    if os.path.isdir(checkpoints_dir):
+        print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
+        checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
 
-    # if checkpoint is not None:
-    #     if os.path.isfile(checkpoint):
-    #         step_saved, epochs_saved = load_from_checkpoint(
-    #             checkpoint,
-    #             model,
-    #             optimizer,
-    #         )
-    #         print(
-    #             f"start from checkpoint at step {step_saved} and epoch {epochs_saved}"
-    #         )
+    if checkpoint is not None:
+        if os.path.isfile(checkpoint):
+            steps_saved, epochs_saved = load_from_checkpoint(
+                checkpoint,
+                model,
+                optimizer,
+            )
+            print(
+                f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}"
+            )
+    else:
+        print("Nessun checkpoint trovato")
+        try:
+            checkpoint = os.mkdir(checkpoints_dir)
+        except:
+            pass
 
-    for epoch in pit(range(epochs_saved, epochs), color="green", desc="Epochs"):
+    for epoch in pit(range(0, epochs), color="green", desc="Epochs"):
         # if epoch < epochs_saved:
         #     continue
 
         model.train()
         running_loss = 0.0
+
+        # BATCH FOR LOOP
         for i, data in pit(
             enumerate(train_loader),
             total=len(train_loader),
             color="red",
             desc="Batch",
         ):
+            if running_steps < steps_saved:
+                running_steps += 1
+                continue
 
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
@@ -125,20 +141,32 @@ def train(
             running_loss += loss.item()
             # Calculate validation accuracy
 
+            running_steps += 1
+
         model.eval()
-        correct = 0
-        total = 0
+        correct = 1
+        total = 1
         with torch.no_grad():
             for data in val_loader:
 
-                total += 3
-                correct += 1
+                total = 1
+                correct = 1
 
         val_accuracy = 100 * correct / total
 
         print(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
         )
+        print("Sto salvando il modello...")
+        # save_checkpoint(
+        #     checkpoints_dir,
+        #     "checkpoint",
+        #     model,
+        #     running_steps,
+        #     epoch + 1,
+        #     optimizer,
+        #     scheduler,
+        # )
 
 
 def count_edges(adj_matrix):
@@ -177,15 +205,19 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=10,
+        batch_size=8,
         num_workers=1,
         max_num_nodes=-1,
-        num_examples=5,
-        latent_dimension=8,
-        epochs=20,
+        num_examples=32,
+        latent_dimension=5,
+        epochs=5,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
+
+
+def save_png(mol, filepath, size=(600, 600)):
+    Draw.MolToFile(mol, filepath, size=size)
 
 
 def main():
@@ -280,13 +312,16 @@ def main():
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():
-        adj, features_nodes, features_edges = model.generate(z, device=device)
+        adj, features_nodes, features_edges, smile = model.generate(
+            z, device=device, smile=True
+        )
 
     rounded_adj_matrix = torch.round(adj)
     # features_nodes = torch.round(features_nodes)
     # features_edges = torch.round(features_edges)
     print("ORIGINAL MATRIX")
-    print(graphs_train[0]["adj"])
+    print(train_dataset[0]["adj"])
+    print(train_dataset[0]["features_nodes"])
     print("##" * 10)
     print("Predicted MATRIX")
     print(rounded_adj_matrix)
@@ -298,7 +333,13 @@ def main():
     print("MATCH DELLE MATRICI")
     print(features_edges.shape)
     print(count_edges(rounded_adj_matrix))
-    model.save_vae_encoder("graphvae_modified_v2")
+    model.save_vae_encoder("main")
+
+    save_filepath = os.path.join("", "mol_{}.png".format(1))
+    print(smile[0])
+    mol = Chem.MolFromSmiles(smile[0])
+    mol = Chem.AddHs(mol)
+    save_png(mol, save_filepath, size=(600, 600))
 
 
 if __name__ == "__main__":

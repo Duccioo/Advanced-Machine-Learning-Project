@@ -138,7 +138,6 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 - [x] Dimezzare le dimensioni delle features degli edge poichè si ripetono 2 volte?
 
 - sulla codifica della matrice adiacente: ha senso fare la predizione anche della diagonale se tanto i self-loop non ci sono?
-
   - [ ] in caso affermativo ridurre la dimensione di output della vae e aggiunstare la ricostruzione della matrice adiacente da quella codificata
 
 - [x] Salvare il modello dell'encoder

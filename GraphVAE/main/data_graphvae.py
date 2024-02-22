@@ -212,7 +212,7 @@ def data_to_smiles(
 ):
     # Crea un dizionario per mappare i numeri atomici ai simboli atomici
     # atomic_numbers = {1: "H", 6: "C", 7: "N", 8: "O", 9: "F"}
-    atomic_numbers = {0: "NULL", 1: "H", 2: "C", 3: "N", 4: "O", 5: "F"}
+    atomic_numbers = {0: "H", 1: "C", 2: "N", 3: "O", 4: "F"}
 
     # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
     bond_types = {
@@ -224,6 +224,7 @@ def data_to_smiles(
 
     # Creazione di un elenco di archi dall'adiacenza
     edges_index = torch.nonzero(adj_matrix, as_tuple=False).t()
+    print("edges index ", edges_index)
 
     # Crea un oggetto molecola vuoto
     mol = Chem.RWMol()
@@ -236,10 +237,8 @@ def data_to_smiles(
         # atom = mol.AddAtom(Chem.Atom(atomic_numbers[int(atom[atomic_numbers_idx])]))
         # print(data.x)
         print((node_features[idx]))
-        if int(node_features[idx][atomic_numbers_idx]) != 0:
-            atom_ = Chem.Atom(
-                atomic_numbers[int(node_features[idx][atomic_numbers_idx])]
-            )
+        if int(node_features[idx]) != 0:
+            atom_ = Chem.Atom(atomic_numbers[int(node_features[idx])])
             # print(data.pos[idx, 0])
             # atom_.SetDoubleProp("x", data.pos[idx, 0].item())
             # atom_.SetDoubleProp("y", data.pos[idx, 1].item())
@@ -248,29 +247,43 @@ def data_to_smiles(
 
     # Aggiungi i legami alla molecola
     edge_index = edges_index.tolist()
+    print("------MMmmmmMMM---")
     print(edge_index)
     bond_saved = []
-
+    edge_features = edge_features.squeeze_()
+    print(edge_features.shape)
+    indixe_features = 0
     for idx, start_end in enumerate(zip(edge_index[0], edge_index[1])):
         start, end = start_end
-        # bond_type_one_hot = int((edge_features[idx]).argmax())
-        bond_type_one_hot = 0
-        bond_type = bond_types[bond_type_one_hot]
+
         if (
             (start, end) not in bond_saved
-            and (
-                end,
-                start,
-            )
-            not in bond_saved
+            and (end, start) not in bond_saved
             and start != end
         ):
+            try:
+                print(edge_features)
+                bond_type_one_hot = int((edge_features[indixe_features]).argmax())
+            except:
+                print("__--___--__")
+                edge_features = edge_features.repeat(2, 1)
+                print(edge_features.shape)
+                print(".......")
+                print(edge_features.shape)
+                bond_type_one_hot = int((edge_features[indixe_features]).argmax())
+            indixe_features += 1
+
+            bond_type = bond_types[bond_type_one_hot]
+
             print("Bound saved, ", start, end, bond_type)
             bond_saved.append((start, end))
             mol.AddBond(start, end, bond_type)
+        else:
+            print("legame ", start, end, "gia presente")
 
     # Converti la molecola in una stringa SMILES
     smiles = Chem.MolToSmiles(mol)
+    print(smiles)
     return smiles, number_atom
 
 

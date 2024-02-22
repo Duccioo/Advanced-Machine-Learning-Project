@@ -11,6 +11,9 @@ from model import GraphConv, MLP_VAE_plain
 
 import time
 
+# ---
+from data_graphvae import data_to_smiles
+
 
 class GraphVAE(nn.Module):
     def __init__(
@@ -127,11 +130,27 @@ class GraphVAE(nn.Module):
                     for a in range(self.max_num_nodes):
 
                         # calcolo la similarità nei loop
-                        S[i, i, a, a] = (
-                            adj[i, i]
-                            * adj_recon[a, a]
-                            * sim_func(matching_features[i], matching_features_recon[a])
-                        )
+                        try:
+                            S[i, i, a, a] = (
+                                adj[i, i]
+                                * adj_recon[a, a]
+                                * sim_func(
+                                    matching_features[i], matching_features_recon[a]
+                                )
+                            )
+                        except:
+                            matching_features = matching_features.repeat(2, 1)
+                            matching_features_recon = matching_features_recon.repeat(
+                                2, 1
+                            )
+                            S[i, i, a, a] = (
+                                adj[i, i]
+                                * adj_recon[a, a]
+                                * sim_func(
+                                    matching_features[i], matching_features_recon[a]
+                                )
+                            )
+
                         # with feature not implemented
                         # if input_features is not None:
                 else:
@@ -215,6 +234,10 @@ class GraphVAE(nn.Module):
             device=self.device,
         )
 
+        adj_permuted_vectorized = torch.empty(
+            out.size(0), out.size(1), device=self.device
+        )
+
         if out.shape[0] >= 1:
             for i in range(0, out.shape[0]):
                 recon_adj_lower = self.recover_adj_lower(out[i], self.device)
@@ -235,6 +258,12 @@ class GraphVAE(nn.Module):
                 )
 
                 recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
+
+                # print(adj[i].shape)
+                # print(recon_adj_tensor.shape)
+                # print(edges_features[i].shape)
+                # print(edges_recon_features[i].shape)
+
                 S = self.edge_similarity_matrix(
                     adj[i],
                     recon_adj_tensor,
@@ -255,7 +284,6 @@ class GraphVAE(nn.Module):
                 # init.uniform(init_assignment)
                 assignment = self.mpm(init_assignment, S)
                 # matching
-                print("qui?")
 
                 # use negative of the assignment score since the alg finds min cost flow
                 row_ind, col_ind = scipy.optimize.linear_sum_assignment(
@@ -267,26 +295,16 @@ class GraphVAE(nn.Module):
                 # order row index according to col index
 
                 adj_permuted = self.permute_adj(adj[i], row_ind, col_ind)
-
-                adj_permuted_total[i] = adj_permuted.unsqueeze(0)
-
-                print("allora è questo")
+                # adj_permuted_total[i] = adj_permuted.unsqueeze(0)
+                adj_permuted_vectorized[i] = adj_permuted[
+                    torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
+                ]  # qui si va a trasformare la matrice adiacente in un vettore prendento la triangolare superiore della matrice adiacente.
 
         # print('Assignment: ', assignment)
-        print("max num nodes: ", self.max_num_nodes)
-        print("max edges nodes: ", self.max_num_edges)
 
-        print(adj.shape)
-        print(edges_features.shape)
+        # print(adj_vectorized.shape)
 
-        print(adj_permuted_total.shape)
-        print(edges_recon_features_total.shape)
-
-        adj_vectorized = adj_permuted_total[
-            torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
-        ].squeeze_()  # qui si va a trasformare la matrice adiacente in un vettore prendento la triangolare superiore della matrice adiacente.
-
-        adj_recon_loss = F.binary_cross_entropy(out[0], adj_vectorized)
+        adj_recon_loss = F.binary_cross_entropy(out, adj_permuted_vectorized)
 
         # print("RECON", recon_adj_tensor)
         # self.generate_features_edge(num_edge = 10)
@@ -340,7 +358,7 @@ class GraphVAE(nn.Module):
 
         return loss
 
-    def generate(self, z, device="cpu"):
+    def generate(self, z, device="cpu", smile=False):
         # print("z shape", z.shape)
         # Variable(torch.tensor(input_features, dtype=torch.float32))
         # z = torch.tensor(z, dtype=torch.float32).cuda()
@@ -354,10 +372,6 @@ class GraphVAE(nn.Module):
             -1, self.input_dimension, self.num_nodes_features
         )
         # print("output features ", output_features.shape)
-        output_node_features = output_node_features[
-            :, :, : self.num_nodes_features
-        ].squeeze_()
-
         print(output_edge_features.shape)
 
         output_edge_features = output_edge_features.view(
@@ -373,12 +387,41 @@ class GraphVAE(nn.Module):
         # print("output edges ", output_edge_features.shape)
 
         out = F.sigmoid(h_decode)
-        out_tensor = out.data
+        print("--------")
+        print(out)
+        # out_tensor = out.data
 
-        recon_adj_lower = self.recover_adj_lower(out_tensor, device=self.device)
+        recon_adj_lower = self.recover_adj_lower(out, device=self.device)
         recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-        return recon_adj_tensor, output_node_features, output_edge_features
+        # Crea una maschera booleana per gli elementi uguali a 1 sulla diagonale
+        maschera_diagonale = torch.eye(recon_adj_tensor.shape[0], dtype=bool)
+
+        # Imposta gli elementi sulla diagonale a 0
+        recon_adj_tensor[maschera_diagonale] = 0
+        recon_adj_tensor = torch.round(recon_adj_tensor)
+
+        # Crea una maschera booleana per gli elementi uguali a 1
+        maschera_1 = recon_adj_tensor == 1
+
+        # Conta il numero di 1 nella matrice
+        n_one = maschera_1.sum().item() // 2
+
+        output_edge_features = output_edge_features[:, :n_one]
+
+        # riconverto il one-hot encoding in numero atomico:
+        # Prendi le colonne dal 5 al 10
+        sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
+        print(sotto_matrice)
+
+        # Trova l'indice del valore massimo lungo l'asse delle colonne
+        indici = torch.argmax(sotto_matrice, dim=2)[0]
+        print(indici)
+
+        if smile:
+            smile = data_to_smiles(indici, output_edge_features, recon_adj_tensor)
+
+        return recon_adj_tensor, output_node_features, output_edge_features, smile
 
     def save_vae_encoder(self, path):
         self.vae.save_encoder(path)
