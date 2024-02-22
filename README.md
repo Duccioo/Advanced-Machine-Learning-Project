@@ -128,11 +128,14 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 - [x] fare il one-hot encoding dell'uscita delle features dei nodi
 
+- Generazione
+
+  - [ ] Sistemare l'uscita in modo tale che la matrice delle features degli edges sia sensata con il numero di edges
   - [ ] aggiungere la softmax sull'uscita delle features dei nodi (solo GENERAZIONE)
 
 - [x] eliminare le molecole formate da un solo atomo
 
-- [ ] Dimezzare le dimensioni delle features degli edge poichè si ripetono 2 volte?
+- [x] Dimezzare le dimensioni delle features degli edge poichè si ripetono 2 volte?
 
 - sulla codifica della matrice adiacente: ha senso fare la predizione anche della diagonale se tanto i self-loop non ci sono?
 
