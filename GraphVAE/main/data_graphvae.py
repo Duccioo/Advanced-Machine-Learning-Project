@@ -207,6 +207,62 @@ def create_padded_graph_list(
     return graph_list, max_num_nodes, max_num_edges
 
 
+def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
+    mol = Chem.RWMol()
+    smiles = ""
+
+    atomic_numbers = {0: "H", 1: "C", 2: "N", 3: "O", 4: "F"}
+
+    # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
+    bond_types = {
+        0: Chem.rdchem.BondType.SINGLE,
+        1: Chem.rdchem.BondType.DOUBLE,
+        2: Chem.rdchem.BondType.TRIPLE,
+        3: Chem.rdchem.BondType.AROMATIC,
+    }
+
+    for node_label in node_labels:
+        mol.AddAtom(Chem.Atom(atomic_numbers[node_label]))
+
+    idx = 0
+    print("----________", np.nonzero(adj).tolist())
+    print(edge_features)
+    for edge in np.nonzero(adj).tolist():
+        start, end = edge[0], edge[1]
+        if start > end:
+            print("provo legame ", start, end)
+            bond_type_one_hot = int((edge_features[idx]).argmax())
+            bond_type = bond_types[bond_type_one_hot]
+            idx += 1
+
+            try:
+                mol.AddBond(int(start), int(end), bond_type)
+            except:
+                print("ERROR Impossibile aggiungere legame, Molecola incompleta")
+    if sanitize:
+        try:
+            Chem.SanitizeMol(mol)
+        except Exception:
+            mol = None
+
+    if cleanup:
+        try:
+            mol = Chem.AddHs(mol)
+            smiles = Chem.MolToSmiles(mol)
+
+            smiles = max(smiles.split("."), key=len)
+            if "*" not in smiles:
+                mol = Chem.MolFromSmiles(smiles)
+            else:
+                mol = None
+        except Exception:
+            mol = None
+    if smiles == "" or smiles == None:
+        print("ERROR impossibile creare Molecola")
+
+    return mol, smiles
+
+
 def data_to_smiles(
     node_features, edge_features, adj_matrix, atomic_numbers_idx: int = 5
 ):
@@ -274,10 +330,10 @@ def data_to_smiles(
             indixe_features += 1
 
             bond_type = bond_types[bond_type_one_hot]
+            mol.AddBond(start, end, bond_type)
 
             print("Bound saved, ", start, end, bond_type)
             bond_saved.append((start, end))
-            mol.AddBond(start, end, bond_type)
         else:
             print("legame ", start, end, "gia presente")
 

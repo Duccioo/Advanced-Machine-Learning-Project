@@ -86,6 +86,7 @@ def train(
     checkpoint = None
     steps_saved = 0
     running_steps = 0
+    val_accuracy = 0
 
     # Checkpoint load
     if os.path.isdir(checkpoints_dir):
@@ -109,7 +110,7 @@ def train(
         except:
             pass
 
-    for epoch in pit(range(0, epochs), color="green", desc="Epochs"):
+    for epoch in range(0, epochs):
         # if epoch < epochs_saved:
         #     continue
 
@@ -117,12 +118,7 @@ def train(
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in pit(
-            enumerate(train_loader),
-            total=len(train_loader),
-            color="red",
-            desc="Batch",
-        ):
+        for i, data in enumerate(train_loader):
             if running_steps < steps_saved:
                 running_steps += 1
                 continue
@@ -132,7 +128,18 @@ def train(
             adj_input = data["adj"].float().to(device)
 
             model.zero_grad()
-            loss = model(adj_input, features_edges, features_nodes)
+            adj_vec, mu, var, node_recon, edge_recon = model(features_nodes)
+
+            loss = model.loss(
+                adj_input,
+                adj_vec,
+                features_nodes,
+                node_recon,
+                features_edges,
+                edge_recon,
+                mu,
+                var,
+            )
 
             loss.backward()
             optimizer.step()
@@ -143,16 +150,16 @@ def train(
 
             running_steps += 1
 
-        model.eval()
-        correct = 1
-        total = 1
-        with torch.no_grad():
-            for data in val_loader:
+        # model.eval()
+        # correct = 1
+        # total = 1
+        # with torch.no_grad():
+        #     for data in val_loader:
 
-                total = 1
-                correct = 1
+        #         total = 1
+        #         correct = 1
 
-        val_accuracy = 100 * correct / total
+        # val_accuracy = 100 * correct / total
 
         print(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
@@ -205,12 +212,12 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=8,
+        batch_size=10,
         num_workers=1,
-        max_num_nodes=-1,
-        num_examples=32,
+        max_num_nodes=4,
+        num_examples=50,
         latent_dimension=5,
-        epochs=5,
+        epochs=3,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
@@ -336,6 +343,7 @@ def main():
     model.save_vae_encoder("main")
 
     save_filepath = os.path.join("", "mol_{}.png".format(1))
+    print("AAAAAAAAA")
     print(smile[0])
     mol = Chem.MolFromSmiles(smile[0])
     mol = Chem.AddHs(mol)

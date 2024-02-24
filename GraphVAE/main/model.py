@@ -446,22 +446,16 @@ class MLP_VAE_plain(nn.Module):
         self.device = device
         self.encoder = MLP_VAE_plain_ENCODER(h_size, embedding_size, device)
 
-        self.decode_1 = nn.Linear(embedding_size, embedding_size).to(device=device)
-        self.decode_2 = nn.Linear(embedding_size, y_size).to(device=device)
+        self.decode_1 = nn.Linear(embedding_size, embedding_size)
+        self.decode_2 = nn.Linear(embedding_size, y_size)
 
-        self.relu = nn.ReLU().to(device=device)
+        self.relu = nn.ReLU()
 
-        self.decode_1_features = nn.Linear(embedding_size, embedding_size).to(
-            device=device
-        )
-        self.decode_2_features = nn.Linear(embedding_size, h_size).to(device=device)
+        self.decode_1_features = nn.Linear(embedding_size, embedding_size)
+        self.decode_2_features = nn.Linear(embedding_size, h_size)
 
-        self.decode_edges_1_features = nn.Linear(embedding_size, embedding_size).to(
-            device=device
-        )
-        self.decode_edges_2_features = nn.Linear(embedding_size, e_size).to(
-            device=device
-        )
+        self.decode_edges_1_features = nn.Linear(embedding_size, embedding_size)
+        self.decode_edges_2_features = nn.Linear(embedding_size, e_size)
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -472,7 +466,18 @@ class MLP_VAE_plain(nn.Module):
     def forward(self, h):
 
         z, z_mu, z_lsgms = self.encoder(h)
-        # decoder for adj
+        
+        y, n_features, e_features = self.decoder(z)
+    
+        return y, z_mu, z_lsgms, n_features, e_features
+
+    def save_encoder(self, path_to_save_model):
+        torch.save(
+            self.encoder.state_dict(), os.path.join(path_to_save_model, "encoder.pth")
+        )
+
+    def decoder(self, z):
+        # decoder
         y = self.decode_1(z)
         y = self.relu(y)
         y = self.decode_2(y)
@@ -486,30 +491,6 @@ class MLP_VAE_plain(nn.Module):
         e_features = self.decode_edges_1_features(z)
         e_features = self.relu(e_features)
         e_features = self.decode_edges_2_features(e_features)
-
-        return y, z_mu, z_lsgms, n_features, e_features
-
-    def save_encoder(self, path_to_save_model):
-        torch.save(
-            self.encoder.state_dict(), os.path.join(path_to_save_model, "encoder.pth")
-        )
-
-    def decode(self, z):
-        with torch.no_grad():
-            # decoder
-            y = self.decode_1(z)
-            y = self.relu(y)
-            y = self.decode_2(y)
-
-            # decoder for node features
-            n_features = self.decode_1_features(z)
-            n_features = self.relu(n_features)
-            n_features = self.decode_2_features(n_features)
-
-            # decoder for edges features
-            e_features = self.decode_edges_1_features(z)
-            e_features = self.relu(e_features)
-            e_features = self.decode_edges_2_features(e_features)
 
         return y, n_features, e_features
 
