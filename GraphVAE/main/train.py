@@ -165,15 +165,15 @@ def train(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
         )
         print("Sto salvando il modello...")
-        # save_checkpoint(
-        #     checkpoints_dir,
-        #     "checkpoint",
-        #     model,
-        #     running_steps,
-        #     epoch + 1,
-        #     optimizer,
-        #     scheduler,
-        # )
+        save_checkpoint(
+            checkpoints_dir,
+            "checkpoint",
+            model,
+            running_steps,
+            epoch + 1,
+            optimizer,
+            scheduler,
+        )
 
 
 def count_edges(adj_matrix):
@@ -212,12 +212,13 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=10,
+        batch_size=5,
         num_workers=1,
         max_num_nodes=4,
-        num_examples=50,
+        num_examples=1000,
         latent_dimension=5,
-        epochs=3,
+        epochs=5,
+        # device=torch.device("cpu"),
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
@@ -236,12 +237,14 @@ def main():
 
     device = prog_args.device
 
-    filter_max_num_nodes = -1
+    filter_apriori_max_num_nodes = -1
 
     # loading dataset
     dataset = QM9(
         root=os.path.join("data", "QM9"),
-        pre_filter=T.Compose([FilterSingleton(), FilterMaxNodes(filter_max_num_nodes)]),
+        pre_filter=T.ComposeFilters(
+            [FilterSingleton(), FilterMaxNodes(filter_apriori_max_num_nodes)]
+        ),
         pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
         transform=T.Compose([ToTensor()]),
     )
@@ -251,6 +254,12 @@ def main():
 
     dataset = dataset[0 : prog_args.num_examples]
     print("Number of graphs: ", len(dataset))
+
+    # Filtra i grafi con un numero di nodi maggiore di 10
+    filter_aposterior_max_num_nodes = 6
+    dataset = [
+        data for data in dataset if data.num_nodes <= filter_aposterior_max_num_nodes
+    ]
 
     max_num_nodes = max([dataset[i].num_nodes for i in range(len(dataset))])
     max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
@@ -290,8 +299,8 @@ def main():
 
     print("-------- TRAINING: --------")
 
-    print(max_num_edges)
-    print(max_num_nodes)
+    print("max num edges:", max_num_edges)
+    print("max num nodes:", max_num_nodes)
     print("num edges features", dataset_padded[0]["features_edges"].shape[1])
     print("num nodes features", dataset_padded[0]["features_nodes"].shape[1])
     model = build_model(
@@ -315,6 +324,7 @@ def main():
 
     # ---- INFERENCE ----
     # Generazione di un vettore di rumore casuale
+    np.random.seed()
     z = torch.randn(1, prog_args.latent_dimension)
 
     # Generazione del grafo dal vettore di rumore
@@ -329,6 +339,7 @@ def main():
     print("ORIGINAL MATRIX")
     print(train_dataset[0]["adj"])
     print(train_dataset[0]["features_nodes"])
+    print(train_dataset[0]["smiles"])
     print("##" * 10)
     print("Predicted MATRIX")
     print(rounded_adj_matrix)
@@ -344,8 +355,8 @@ def main():
 
     save_filepath = os.path.join("", "mol_{}.png".format(1))
     print("AAAAAAAAA")
-    print(smile[0])
-    mol = Chem.MolFromSmiles(smile[0])
+    print(smile)
+    mol = Chem.MolFromSmiles(smile)
     mol = Chem.AddHs(mol)
     save_png(mol, save_filepath, size=(600, 600))
 

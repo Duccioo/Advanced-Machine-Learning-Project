@@ -113,6 +113,11 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 8. Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
    E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
+     <details>
+
+   > problema risolto, usate 2 MSE loss una per la matrice delle features dei nodi e una per gli edges
+
+     </details>
 
 ## appunti e domande 19/02:
 
@@ -122,31 +127,59 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   - [x] aggiungere la MSE per i node features e gli edge features e controllare il numero di edge
 
-- problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features:
+- [ ] problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features:
 
   - [x] aggiungere il numero di edge dal calcolo del numero massimo dei nodi
 
 - [x] fare il one-hot encoding dell'uscita delle features dei nodi
 
-- Generazione
-
-  - [ ] Sistemare l'uscita in modo tale che la matrice delle features degli edges sia sensata con il numero di edges
-  - [ ] aggiungere la softmax sull'uscita delle features dei nodi (solo GENERAZIONE)
-
 - [x] eliminare le molecole formate da un solo atomo
 
 - [x] Dimezzare le dimensioni delle features degli edge poichè si ripetono 2 volte?
 
-- sulla codifica della matrice adiacente: ha senso fare la predizione anche della diagonale se tanto i self-loop non ci sono?
+- [ ] Sulla codifica della matrice adiacente: ha senso fare la predizione anche della diagonale se tanto i self-loop non ci sono?
+
   - [ ] in caso affermativo ridurre la dimensione di output della vae e aggiunstare la ricostruzione della matrice adiacente da quella codificata
 
 - [x] Salvare il modello dell'encoder
 
-- aggiungere latent diffusion:
+- [ ] Generazione:
 
-  - Allenare prima il VAE, staccare e salvarsi l'encoder
-  - quale loss utilizzare? quella del diffusion model o quella del graphVAE?
-  - magari usare rumore normalizzato
+  - [x] Sistemare l'uscita in modo tale che la matrice delle features degli edges sia sensata con il numero di edges
+  - [x] aggiungere la softmax sull'uscita delle features dei nodi (solo GENERAZIONE)
+
+  - [ ] quando creo lo smiles ha senso fare la Sanitizzazione della molecola prima di convertirla?
+
+### Extra
+
+- [ ] Creare Grafi con Numero di nodi minore a quello massimo:
+
+  1. Arrotondo con una soglia e mi vado a prendere solo quelli che sono diversi da 0
+
+  2. Problema di coerenza: quale edge vado a scegliere? Se un edge è presente ma la features dei nodi è zero?
+
+- [ ] Problema di efficienza: il modello sopratutto con tanti elementi nei batch rallenta molto (soprattutto usando la GPU):
+
+  - problemi nello spostamento tra GPU e CPU dei dati
+  - alcune operazioni non sono parallelizzabili ( o forse si? )
+
+## Latent Diffusion
+
+- Allenare prima il VAE, staccare e salvarsi l'encoder
+- quale loss utilizzare? quella del diffusion model o quella del graphVAE?
+  <details>
+  vi avevo detto che vi avrei specificato meglio quale funzione errore va usata per addestrare la rete che fa la diffusione inversa sullo stato latente.
+  Ho ricontrollato è si può usare un'errore quadratico (differenza fra il rumore predetto e quello effettivo). Tra l'altro questo dettaglio era già nelle slide del corso
+  e non me lo ricordavo. Per spiegarlo, vi riallego le slide,
+  L'algoritmo di addestramento è definito nella slide 14. Sostanzialmente è previsto che si prenda un immagine del dataset, un tempo t a caso
+  e si applichi un rumore che, pixel per pixel, dipende dal valore iniziale del pixel e da un epsilon che è generato da una distribuzione normale.
+  La formula da usare è quella di slide 8, dove gli alfa e i beta di t sono quelli definiti in slide 8 e slide 6.
+  Come vedete in slide 6 si spiega come si calcolano i beta: sostanzialmente dipendono da un alpha e un beta inziale che ci dicono quanto è il rumore all'inizio.
+  Poi i beta crescono (e di conseguenza il rumore) in maniera lineare rispetto a t. Sono stati provati altri andamenti (quadratico), ma io dire di usare quello di base lineare.
+  In pratica, voi dovete prendere un immagine e un t a caso e applicargli un rumore secondo formula a slide 8. Poi date l ímmagine rumorosa e il t va in ingresso
+  alla rete che deve restituire il rumore. Calcolate il gradiente come un problema di regressione sul rumore.
+  </details>
+- magari usare rumore normalizzato
 
 ## Resurces
 

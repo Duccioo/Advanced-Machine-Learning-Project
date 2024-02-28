@@ -10,7 +10,6 @@ import rdkit.Chem as Chem
 
 class ToTensor(BaseTransform):
     def __call__(self, data):
-        data.x = torch.tensor(data.x)
         data.y = np.array(data.y)
         data.adj = torch.tensor(data.adj)
         return data
@@ -108,9 +107,14 @@ def one_hot_encoding(matrix, col_index, mapping_dict):
 class FilterSingleton(BaseTransform):
     def __call__(self, data):
 
+        len_iniziale = len(data.x)
         data = remove_hydrogen(data)
+        len_dopo = len(data.x)
 
         if data.x.size(0) == 1 or data == None:
+            print(data.x)
+            print("---", len_iniziale, len_dopo)
+
             return False
         else:
 
@@ -200,6 +204,7 @@ def create_padded_graph_list(
             "features_edges": data.edge_attr,
             "num_nodes": len(data.z),
             "num_edges": data.num_edges,
+            "smiles": data.smiles,
         }
 
         graph_list.append(graph)
@@ -211,7 +216,7 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
     mol = Chem.RWMol()
     smiles = ""
 
-    atomic_numbers = {0: "H", 1: "C", 2: "N", 3: "O", 4: "F"}
+    atomic_numbers = {0: "C", 1: "N", 2: "O", 3: "F"}
 
     # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
     bond_types = {
@@ -220,19 +225,20 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
         2: Chem.rdchem.BondType.TRIPLE,
         3: Chem.rdchem.BondType.AROMATIC,
     }
-
+    # print(f"Node Labels {node_labels}")
     for node_label in node_labels:
+        print(f"Adding atom {atomic_numbers[node_label]}")
         mol.AddAtom(Chem.Atom(atomic_numbers[node_label]))
 
     idx = 0
     print("----________", np.nonzero(adj).tolist())
-    print(edge_features)
+    # print(edge_features)
     for edge in np.nonzero(adj).tolist():
         start, end = edge[0], edge[1]
         if start > end:
-            print("provo legame ", start, end)
             bond_type_one_hot = int((edge_features[idx]).argmax())
             bond_type = bond_types[bond_type_one_hot]
+            print(f"ADDING BOUND {bond_type} to {start} and {end}")
             idx += 1
 
             try:
@@ -243,20 +249,27 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
         try:
             Chem.SanitizeMol(mol)
         except Exception:
-            mol = None
+            print("Sanitize Failed")
+            # mol = None
 
     if cleanup:
         try:
             mol = Chem.AddHs(mol)
             smiles = Chem.MolToSmiles(mol)
+            print("QUESTA è una parziale SMILES", smiles)
 
             smiles = max(smiles.split("."), key=len)
             if "*" not in smiles:
                 mol = Chem.MolFromSmiles(smiles)
             else:
+                print("mol from smiles failed")
                 mol = None
         except Exception:
+            print("error generic")
+            smiles = Chem.MolToSmiles(mol)
+
             mol = None
+
     if smiles == "" or smiles == None:
         print("ERROR impossibile creare Molecola")
 

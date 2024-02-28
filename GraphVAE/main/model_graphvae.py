@@ -57,7 +57,7 @@ class GraphVAE(nn.Module):
             output_dim,
             device=device,
             e_size=max_num_edges * self.num_edges_features,
-        )
+        ).to(device=device)
 
         # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
 
@@ -112,7 +112,7 @@ class GraphVAE(nn.Module):
         edge_similarity = F.cosine_similarity(f1, f2, dim=0)
         return edge_similarity
 
-    def edge_similarity_matrix(
+    def edge_similarity_matrix_1(
         self, adj, adj_recon, matching_features, matching_features_recon, sim_func
     ):
         S = torch.zeros(
@@ -130,46 +130,64 @@ class GraphVAE(nn.Module):
                     for a in range(self.max_num_nodes):
 
                         # calcolo la similarità nei loop
-                        try:
-                            S[i, i, a, a] = (
-                                adj[i, i]
-                                * adj_recon[a, a]
-                                * sim_func(
-                                    matching_features[i], matching_features_recon[a]
-                                )
-                            )
-                        except:
-                            matching_features = matching_features.repeat(2, 1)
-                            matching_features_recon = matching_features_recon.repeat(
-                                2, 1
-                            )
-                            S[i, i, a, a] = (
-                                adj[i, i]
-                                * adj_recon[a, a]
-                                * sim_func(
-                                    matching_features[i], matching_features_recon[a]
-                                )
-                            )
+                        # try:
+                        #     S[i, i, a, a] = (
+                        #         adj[i, i]
+                        #         * adj_recon[a, a]
+                        #         * sim_func(
+                        #             matching_features[i], matching_features_recon[a]
+                        #         )
+                        #     )
+                        # except:
+                        S[i, i, a, a] = 0
 
-                        # with feature not implemented
-                        # if input_features is not None:
+                    # with feature not implemented
+                    # if input_features is not None:
                 else:
                     for a in range(self.max_num_nodes):
                         for b in range(self.max_num_nodes):
                             if b == a:
                                 continue
 
-                            S[i, j, a, b] = (
-                                torch.abs(adj[i, j] - adj_recon[a, b])
-                                # * adj[i, i]
-                                # * adj[j, j]
-                                # * adj_recon[a, b]
-                                # * adj_recon[a, a]
-                                # * adj_recon[b, b]
-                            )
+                            S[i, j, a, b] = torch.abs(adj[i, j] - adj_recon[a, b])
         return S
 
-    def mpm(self, x_init, S, max_iters=50):
+    import torch
+
+    def edge_similarity_matrix(
+        self, adj, adj_recon, matching_features, matching_features_recon, sim_func
+    ):
+        S = torch.zeros(
+            self.max_num_nodes,
+            self.max_num_nodes,
+            self.max_num_nodes,
+            self.max_num_nodes,
+            device=self.device,
+        )
+
+        for i in range(self.max_num_nodes):
+            for j in range(self.max_num_nodes):
+                if i == j:
+                    S[i, i, :, :] = (
+                        adj[i, i]
+                        * adj_recon[:, :]
+                        * sim_func(matching_features[i], matching_features_recon[j])
+                    )
+
+                    # Set diagonal elements to zero
+                    S[
+                        i,
+                        i,
+                        torch.arange(self.max_num_nodes),
+                        torch.arange(self.max_num_nodes),
+                    ] = 0
+                else:
+                    # Calculate the absolute difference using vectorized operations
+                    S[i, j, :, :] = torch.abs(adj[i, j] - adj_recon[:, :])
+
+        return S
+
+    def mpm(self, x_init, S, max_iters=5):
         x = x_init
         for it in range(max_iters):
             x_new = torch.zeros(
@@ -234,7 +252,6 @@ class GraphVAE(nn.Module):
         mu,
         var,
     ):
-        # recover adj
         edges_recon_features_total = torch.empty(
             adj_true.shape[0],
             edges_recon.shape[1],
@@ -249,154 +266,102 @@ class GraphVAE(nn.Module):
             device=self.device,
         )
 
-        adj_permuted_vectorized = torch.empty(
-            adj_recon_vector.size(0), adj_recon_vector.size(1), device=self.device
-        )
+        init_corr = 1 / self.max_num_nodes
 
-        if adj_recon_vector.shape[0] >= 1:
-            for i in range(0, adj_recon_vector.shape[0]):
-                recon_adj_lower = self.recover_adj_lower(
-                    adj_recon_vector[i], self.device
-                )
+        adj_permuted_vectorized = adj_recon_vector.clone().to(self.device)
 
-                # Otteniamo gli indici della parte triangolare superiore senza la diagonale
+        for i in range(adj_recon_vector.shape[0]):
+            recon_adj_lower = self.recover_adj_lower(adj_recon_vector[i], self.device)
 
-                # Estraiamo gli elementi corrispondenti dalla matrice
-                adj_wout_diagonal = adj_true[i][
-                    upper_triangular_indices[0], upper_triangular_indices[1]
-                ]
-                # adj_wout_diagonal = adj[i].triu(diagonal=1).flatten()
-                adj_mask = adj_wout_diagonal.repeat(edges_recon.shape[2], 1).T
+            adj_wout_diagonal = adj_true[i][
+                upper_triangular_indices[0], upper_triangular_indices[1]
+            ]
+            adj_mask = adj_wout_diagonal.repeat(edges_recon.shape[2], 1).T
 
-                masked_edges_recon_features = edges_recon[i] * adj_mask
+            masked_edges_recon_features = edges_recon[i] * adj_mask
+            edges_recon_features_total[i] = masked_edges_recon_features.reshape(
+                -1, edges_recon.shape[2]
+            )
 
-                edges_recon_features_total[i] = masked_edges_recon_features.reshape(
-                    -1, edges_recon.shape[2]
-                )
+            recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-                recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
+            S = self.edge_similarity_matrix(
+                adj_true[i],
+                recon_adj_tensor,
+                edges_true[i],
+                edges_recon[i],
+                self.deg_feature_similarity_2,
+            )
 
-                # print(adj[i].shape)
-                # print(recon_adj_tensor.shape)
-                # print(edges_features[i].shape)
-                # print(edges_recon_features[i].shape)
+            init_assignment = (
+                torch.ones(self.max_num_nodes, self.max_num_nodes, device=self.device)
+                * init_corr
+            )
+            assignment = self.mpm(init_assignment, S)
 
-                S = self.edge_similarity_matrix(
-                    adj_true[i],
-                    recon_adj_tensor,
-                    edges_true[i],
-                    edges_recon[i],
-                    self.deg_feature_similarity_2,
-                )
+            row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                -assignment.detach().cpu().numpy()
+            )
 
-                # initialization strategies
-                init_corr = 1 / self.max_num_nodes
-                init_assignment = (
-                    torch.ones(
-                        self.max_num_nodes, self.max_num_nodes, device=self.device
-                    )
-                    * init_corr
-                )
-                # init_assignment = torch.FloatTensor(4, 4)
-                # init.uniform(init_assignment)
-                assignment = self.mpm(init_assignment, S)
-                # matching
-
-                # use negative of the assignment score since the alg finds min cost flow
-                row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-                    -assignment.detach().cpu().numpy()
-                )
-
-                # print("row: ", row_ind)
-                # print("col: ", col_ind)
-                # order row index according to col index
-
-                adj_permuted = self.permute_adj(adj_true[i], row_ind, col_ind)
-                # adj_permuted_total[i] = adj_permuted.unsqueeze(0)
-                adj_permuted_vectorized[i] = adj_permuted[
-                    torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
-                ]  # qui si va a trasformare la matrice adiacente in un vettore prendento la triangolare superiore della matrice adiacente.
+            adj_permuted = self.permute_adj(adj_true[i], row_ind, col_ind)
+            adj_permuted_vectorized[i] = adj_permuted[
+                torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1
+            ]
 
         adj_recon_loss = F.binary_cross_entropy(
             adj_recon_vector, adj_permuted_vectorized
         )
 
-        # kl loss server solo media e varianza
         loss_kl = -0.5 * torch.sum(1 + var - mu.pow(2) - var.exp())
-        loss_kl /= self.max_num_nodes * self.max_num_nodes  # normalize
-
-        # per quanto riguarda le features degli edge:
+        loss_kl /= self.max_num_nodes * self.max_num_nodes
 
         loss_edge = F.mse_loss(edges_recon_features_total, edges_true)
-        # - MSE tra il target e quello generato stando attenti al numero di archi considerati
-        # mascherato con il grafo originale
-
-        # per quanto riguarda le features dei nodi:
-        # - MSE di nuovo
         loss_node = F.mse_loss(node_recon, node_true)
 
         loss = adj_recon_loss + loss_kl + loss_edge + loss_node
 
-        # end_forward = time.time() - start_forward
-        # print("FORWARD: ", end_vae, end_adj_true_vectorization, end_forward)
-
         return loss
 
     def generate(self, z, device="cpu", smile=False):
-        # z = torch.tensor(z, dtype=torch.float32).cuda()
-        z = z.clone().detach().to(dtype=torch.float32).to(device=device)
-        # input_features = np.array(input_features)
-        # print(input_features)
-        # graph_h = input_features.view(-1, self.max_num_nodes * self.num_features)
-        # h_decode, z_mu, z_lsgms = self.vae(graph_h)
         with torch.no_grad():
+            z = z.clone().detach().to(dtype=torch.float32).to(device=device)
             h_decode, output_node_features, output_edge_features = self.vae.decoder(z)
+
             output_node_features = output_node_features.view(
                 -1, self.input_dimension, self.num_nodes_features
             )
-            # print("output features ", output_features.shape)
-
             output_edge_features = output_edge_features.view(
                 -1, self.max_num_edges, self.num_edges_features
             )
-
             output_edge_features = F.softmax(output_edge_features, dim=2)
-            out = F.sigmoid(h_decode)
-            # out_tensor = out.data
+            out = torch.sigmoid(h_decode)
 
             recon_adj_lower = self.recover_adj_lower(out, device=self.device)
             recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-            # Crea una maschera booleana per gli elementi uguali a 1 sulla diagonale
-            maschera_diagonale = torch.eye(recon_adj_tensor.shape[0], dtype=bool)
-
-            # Imposta gli elementi sulla diagonale a 0
-            recon_adj_tensor[maschera_diagonale] = 0
+            recon_adj_tensor.fill_diagonal_(0)
             recon_adj_tensor = torch.round(recon_adj_tensor)
 
-            # Crea una maschera booleana per gli elementi uguali a 1
-            maschera_1 = recon_adj_tensor == 1
-
-            # Conta il numero di 1 nella matrice
-            n_one = maschera_1.sum().item() // 2
-
+            n_one = (recon_adj_tensor == 1).sum().item() // 2
             output_edge_features = output_edge_features[:, :n_one]
 
-            # riconverto il one-hot encoding in numero atomico:
-            # Prendi le colonne dal 5 al 10
+            # sotto_matrice = torch.round(
+            #     F.softmax(output_node_features[:, :, 5:9], dim=2)
+            # )
             sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
-
-            # Trova l'indice del valore massimo lungo l'asse delle colonne
+            print(f"Sotto Matrice::::: {sotto_matrice}")
+            print(f"OUTPUT node Features {output_node_features} ")
             indici = torch.argmax(sotto_matrice, dim=2)[0]
 
             if smile:
-                smile = graph_to_mol(
-                    recon_adj_tensor.to("cpu"),
-                    indici.to("cpu").numpy(),
-                    output_edge_features[0].to("cpu"),
+                _, smile = graph_to_mol(
+                    recon_adj_tensor.cpu(),
+                    indici.cpu().numpy(),
+                    output_edge_features[0].cpu(),
                     True,
                     True,
                 )
+                print(smile)
 
             return recon_adj_tensor, output_node_features, output_edge_features, smile
 
