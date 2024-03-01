@@ -150,6 +150,11 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   - [ ] quando creo lo smiles ha senso fare la Sanitizzazione della molecola prima di convertirla?
 
+  - [ ] Durante la generazione otteniamo valori della matrice adiancente molto bassi, tutti sotto 0.5.
+    - quindi quando decidiamo se fare o meno un edge il valore con un round() semplice viene sempre 0 ovvero quel edge non viene preso
+    - solito discorso sulla diagonale dove i valori sono ancor più piccoli, intorno a 0.10/0.20.
+    - conviene diminuire la trashold?
+
 ### Extra
 
 - [ ] Creare Grafi con Numero di nodi minore a quello massimo:
@@ -206,45 +211,3 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
   - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
   - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
   - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
-
-Buongiorno a tutti,
-
-allora siamo andati un po' avanti e volevamo aggiornarvi sullo stato del progetto e chiedervi anche qualche dubbio.
-
-- Dopo l'ultimo incontro abbiamo aggiornato il codice aggiungendo le loss per le features dei nodi e degli edges, quindi abbiamo provato un po' ad allenare la rete e ci siamo subito resi conto che è molto lenta.
-  Anche solo con un migliaio di dati e qualche epoca la rete impiega già ore per allenarsi, la loss piano piano scende quindi probabilmente qualche cosa sta apprendendo però è davvero mal ottimizzata soprattutto con tanti batch e con la GPU i tempi esplodono quindi sicuramente c'è qualcosa che non va.
-  Abbiamo cercato un po' di trovare qualche soluzione ma probabilmente il problema sta che in alcuni punti del codice c'è il passaggio tra GPU e CPU dei dati, oppure qualche punto dove non riesce a parallelizzare.
-  Il più del tempo lo passa calcolando la loss e probabilmente l'inghippo sta in un ciclo for proprio lì dentro, comunque in caso voleste dargli un occhiata vi lasciamo il codice per il calcolo della loss in allegato.
-
-- Poi, altra cosa.
-  Fino ad ora quando generiamo una molecola la rete restituisce le matrici adiacenza e delle features però queste sono di dimensione finita e nel caso volessimo calcolarci una molecola con un numero di atomi minore da quello di output della rete non sappiamo come procedere.
-  Se eliminare in modo brutale gli ultimi nodi restituiti oppure fare una soglia e selezionare solo alcuni atomi.
-  E poi, in caso scegliamo di eliminare qualche atomo ma nella matrice di adiacenza è presente l'edge in quel nodo che facciamo, scartiamo tutto?
-
-- Poi bbiamo implementato il latent diffusion model, quindi seguendo le informazioni del prof prima ci siamo salvati i modelli allenati dell'encoder e del decoder precedenti, poi passando i dati all'encoder e alla rete ci calcoliamo il rumore.
-  Volevamo sapere, poichè da principio le features dei nodi erano 11 (poi con l'encoding sono diventate 17), già nell'encoder restringiamo le features fino ad un vettore di 5 elementi, quanto la facciamo profonda la rete dentro il latent diffusion model?
-  Perchè abbiamo provato con 2/3 strati però sono talmente piccoli i layer che non sappiamo quanto andare a fondo.
-
-Infine vi lasciamo con il l'ultimo training della GraphVAE fatto con i seguenti parametri:
-
--------- TRAINING --------
-training set: 3500
-max number node: 9
-max num edges: 36
-num nodes features 17
-num edges features 4
-latent dimension 5
-
-In allegato lasciamo anche l'andamento della loss.
-Abbiamo fatto anche un test di generazione di 8000 molecole e confrontato con altre 8000 molecole vere del dataset QM9 ha dato il 100% di Validità ma solo lo 0.25% di unicità quindi probabilmente la rete è entrata in overfitting.
-(non abbiamo calcolato la novelty perchè non sappiamo se il calcolo lo possiamo fare anche direttamente sugli smiles invece che sui grafi).
-
--------- TEST --------
-Test set: 8000
-max num edges: 36
-max num nodes: 9
-num edges features 4
-num nodes features 17
-trying to load latest checkpoint from directory checkpoints
-Validity: 100.00%
-Uniqueness: 0.25%

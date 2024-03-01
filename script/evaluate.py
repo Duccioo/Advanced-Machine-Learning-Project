@@ -14,12 +14,16 @@ def calc_metrics(
     validity_percentage = sum(
         calculate_validity(mol) for mol in generated_molecules
     ) / len(generated_molecules)
-    uniqueness_percentage = calculate_uniqueness(generated_molecules)
-    # novelty_percentage = calculate_novelty(generated_molecules, training_set_molecules)
+    uniqueness_percentage = calculate_uniqueness(
+        generated_molecules, generated_molecules
+    )
+    novelty_percentage = calculate_novelty_2(
+        generated_molecules, training_set_molecules
+    )
 
     print(f"Validità: {validity_percentage:.2%}")
     print(f"Unicità: {uniqueness_percentage:.2%}")
-    # print(f"Novità: {novelty_percentage:.2%}")
+    print(f"Novità: {novelty_percentage:.2%}")
 
 
 def calculate_validity(molecule):
@@ -28,26 +32,40 @@ def calculate_validity(molecule):
     except:
         return False
 
-    flag = Chem.SanitizeMol(mol, catchErrors=True)
-    # Let's be strict. If sanitization fails, return None
-    if flag != Chem.SanitizeFlags.SANITIZE_NONE:
-        return None
+    if mol is not None:
 
+        flag = Chem.SanitizeMol(mol, catchErrors=True)
+        # Let's be strict. If sanitization fails, return None
+        if flag != Chem.SanitizeFlags.SANITIZE_NONE:
+            return False
+
+        else:
+            return True
     else:
-        return mol is not None
+        return False
 
 
-def calculate_uniqueness(molecules):
+def calculate_uniqueness(mol_new, mol_old):
     unique_molecules = set()
-    for mol in molecules:
+    for mol in mol_new:
+        # print(mol)
         unique_molecules.add(mol)
-    return len(unique_molecules) / len(molecules)
+
+    # print(list(unique_molecules))
+
+    return len(unique_molecules) / len(mol_old)
+
+
+def calculate_novelty_2(molecole_predette, molecola_reale):
+    val_pred_mol = [calculate_validity(mol) for mol in molecole_predette]
+
+    return calculate_uniqueness(val_pred_mol, molecola_reale)
 
 
 def calculate_novelty(molecole_predette, molecola_reale):
     # Converte la molecola reale in un fingerprint di Morgan
     molecola_reale = Chem.MolFromSmiles(molecola_reale)
-    fp_reale = AllChem.GetMorganFingerprintAsBitVect(molecola_reale, 2)
+    # fp_reale = AllChem.GetMorganFingerprintAsBitVect(molecola_reale, 2)
 
     novelty_scores = []
 

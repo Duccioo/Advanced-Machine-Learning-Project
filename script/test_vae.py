@@ -57,31 +57,42 @@ def test(model, val_loader, latent_dimension, device):
     model.eval()
     smile_pred = []
     smile_true = []
+    edges_medi = 0
     with torch.no_grad():
         for idx, data in pit(
             enumerate(val_loader),
             total=len(val_loader),
             color="red",
-            desc="Validating",
+            desc="Batch",
         ):
+            # print("-----")
 
             z = torch.rand(1, latent_dimension).to(device)
-            _, _, _, smile, mol = model.generate(z, smile=True)
+            recon_adj, recon_node, _, smile, mol, n_one = model.generate(z, smile=True)
+            # print(recon_adj)
+            # print(torch.round(recon_node))
             smile_pred.append(smile)
+            # print("-----")
+            # print(smile)
+            # print(idx)
+            edges_medi += n_one
             smile_true.append(data["smiles"])
 
+    print("CALCOLO METRICHE:")
     calc_metrics(smile_true, smile_pred)
+    print("Numero edge medi: ", edges_medi / len(smile_pred))
+    
 
 
 if __name__ == "__main__":
 
     # loading dataset
     num_examples = 10000
-    batch_size = 5
+    batch_size = 1
     num_nodes_features = 17
     num_edges_features = 4
     max_num_nodes = 9
-    latent_dimension = 5
+    latent_dimension = 9
     checkpoints_dir = "checkpoints"
     learning_rate = 0.001
     LR_milestones = [500, 1000]

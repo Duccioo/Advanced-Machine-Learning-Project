@@ -99,7 +99,12 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
 
     if sanitize:
         try:
-            Chem.SanitizeMol(mol)
+            flag = Chem.SanitizeMol(mol, catchErrors=True)
+            # Let's be strict. If sanitization fails, return None
+            if flag != Chem.SanitizeFlags.SANITIZE_NONE:
+                print("Sanitize Failed")
+                # mol = None
+
         except Exception:
             print("Sanitize Failed")
             # mol = None
@@ -557,6 +562,7 @@ def pit(it, *pargs, **nargs):
     finally:
         if ctr is not None:
             ctr.close()
+            # pass
 
 
 if __name__ == "__main__":

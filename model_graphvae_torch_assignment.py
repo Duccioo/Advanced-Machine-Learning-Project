@@ -18,7 +18,6 @@ from utils.utils import graph_to_mol
 
 
 def hungarian_algorithm(costs):
-    # print(costs)
     # obtain a column vector of minimum row values
     row_mins, _ = torch.min(costs, dim=1, keepdim=True)
     # subtract the tensor of minimum values (broadcasting the minimum value over each row)
@@ -67,21 +66,12 @@ def hungarian_algorithm(costs):
             # empty column queue
             column_queue = []
         # obtain minimum uncovered element (on marked rows and unmarked columns)
-
-        try:
-
-            min_value = torch.min(
-                costs[marked_rows, :][
-                    :, list(set(range(costs.size(1))) - set(marked_columns))
-                ]
-            )
-        except:
-            min_value = 0
-
+        min_value = torch.min(
+            costs[marked_rows, :][
+                :, list(set(range(costs.size(1))) - set(marked_columns))
+            ]
+        )
         # subtract minimum value from uncovered elements
-        # print(min_value.item())
-        # print(costs[0, 0])
-
         for i in marked_rows:
             for j in list(set(range(costs.size(1))) - set(marked_columns)):
                 costs[i, j] = costs[i, j] - min_value
@@ -109,7 +99,6 @@ def hungarian_algorithm(costs):
     assignment = [torch.reshape(a, (1, 2)) for a in assignment]
     assignment = torch.concatenate(assignment, dim=0)
     # return row indices and column inices as separate tensors
-    print("MA QUI CI SONO?")
     return assignment[:, 0], assignment[:, 1]
 
 
@@ -235,7 +224,7 @@ class GraphVAE(nn.Module):
                             S[i, j, a, b] = torch.abs(adj[i, j] - adj_recon[a, b])
         return S
 
-    def mpm(self, x_init, S, max_iters=50):
+    def mpm(self, x_init, S, max_iters=5):
         x = x_init
         for it in range(max_iters):
             x_new = torch.zeros(
@@ -339,9 +328,6 @@ class GraphVAE(nn.Module):
             )
             assignment = self.mpm(init_assignment, S)
 
-            # row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-            #     -assignment.detach().cpu().numpy()
-            # )
             # Algoritmo ungherese implementato in torch per velocizzare le operazioni e fare tutto su gpu
             row_ind, col_ind = hungarian_algorithm(assignment)
 
@@ -365,8 +351,6 @@ class GraphVAE(nn.Module):
         return loss
 
     def generate(self, z, smile: bool = False):
-        mol = None
-        smiles = ""
         with torch.no_grad():
             # z = z.clone().detach().to(dtype=torch.float32).to(device=device)
             h_decode, output_node_features, output_edge_features = self.vae.decoder(z)
@@ -383,85 +367,36 @@ class GraphVAE(nn.Module):
             recon_adj_lower = self.recover_adj_lower(out, device=self.device)
             recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-            # selezioni solo gli atomi dove la diagonale dell'adicenza è sopra una certa soglia:
-            # print("MATRICE ADIACENZA 1")
-            # print(recon_adj_tensor)
-            # recon_adj_tensor_rounded = torch.round(recon_adj_tensor + (0.5 - 0.30))
-            treshold_adj = 0.30
-            treshold_diag = 0.10
-            # Selezione delle righe e colonne con valore diagonale sopra 0.35
-            recon_adj_tensor = recon_adj_tensor[
-                recon_adj_tensor.diagonal() > treshold_diag, :
-            ][:, recon_adj_tensor.diagonal() > treshold_diag]
-            # print("MATRICE ADIACENZA 2")
-            # print(recon_adj_tensor)
-            indici_righe_selezionate = torch.where(
-                torch.diagonal(recon_adj_tensor) > treshold_diag
-            )[0]
-            # print(indici_righe_selezionate)
-
             recon_adj_tensor.fill_diagonal_(0)
+            recon_adj_tensor = torch.round(recon_adj_tensor)
 
-            # recon_adj_norm = (recon_adj_tensor - torch.min(recon_adj_tensor)) / (
-            #     torch.max(recon_adj_tensor) - torch.min(recon_adj_tensor)
+            n_one = (recon_adj_tensor == 1).sum().item() // 2
+            output_edge_features = output_edge_features[:, :n_one]
+
+            # sotto_matrice = torch.round(
+            #     F.softmax(output_node_features[:, :, 5:9], dim=2)
             # )
-            recon_adj_tensor_rounded = torch.round(
-                recon_adj_tensor + (0.5 - treshold_adj)
-            )
-            # recon_adj_tensor_rounded =torch.nn.Threshold(0.35, 0)(recon_adj_tensor)
-            # print(recon_adj_tensor_rounded)
 
-            n_one = (recon_adj_tensor_rounded == 1).sum().item() // 2
+            sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
+            indici = torch.argmax(sotto_matrice, dim=2)[0]
 
-            if n_one == 0 and recon_adj_tensor_rounded.shape[0] == 0:
-                mol = None
-                smiles = ""
-            else:
-                output_edge_features = output_edge_features[:, :n_one]
+            mol = None
 
-                # sotto_matrice = torch.round(
-                #     F.softmax(output_node_features[:, :, 5:9], dim=2)
-                # )
-
-                output_node_features = output_node_features[
-                    :, indici_righe_selezionate.tolist()
-                ]
-                # print(output_node_features)
-
-                sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
-                output_node_features[:, :, 5:9] = sotto_matrice.squeeze_()
-
-                # print("OUTPUT NODE FEATURES:")
-                # print(output_node_features)
-
-                # print("SOTTO MATRICE:")
-                # print(sotto_matrice)
-                try:
-                    indici = torch.argmax(sotto_matrice, dim=1)
-                except:
-                    indici = torch.argmax(sotto_matrice, dim=0)
-                # print(indici)
-                # exit()
-                indici = indici.tolist()
-                # print(indici)
-                if not isinstance(indici, list):
-                    indici = [indici]
-                if smile:
-                    mol, smiles = graph_to_mol(
-                        recon_adj_tensor_rounded.cpu(),
-                        indici,
-                        output_edge_features[0].cpu(),
-                        True,
-                        True,
-                    )
+            if smile:
+                mol, smile = graph_to_mol(
+                    recon_adj_tensor.cpu(),
+                    indici.cpu().numpy(),
+                    output_edge_features[0].cpu(),
+                    True,
+                    True,
+                )
 
             return (
-                recon_adj_tensor_rounded,
+                recon_adj_tensor,
                 output_node_features,
                 output_edge_features,
-                smiles,
+                smile,
                 mol,
-                n_one,
             )
 
     def save_vae_encoder(self, path):

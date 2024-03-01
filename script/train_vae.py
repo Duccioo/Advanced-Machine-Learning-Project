@@ -9,7 +9,7 @@ import torch
 from torch import optim
 from torch.optim.lr_scheduler import MultiStepLR
 from rdkit.Chem import Draw
-
+from tqdm import tqdm
 
 # ---
 from GraphVAE.model_graphvae import GraphVAE
@@ -92,16 +92,7 @@ def train(
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in pit(
-            enumerate(train_loader),
-            total=len(train_loader),
-            color="red",
-            desc="Batch",
-        ):
-            if running_steps < steps_saved:
-                running_steps += 1
-                continue
-
+        for i, data in tqdm(enumerate(train_loader), total=len(train_loader)):
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
@@ -202,7 +193,7 @@ def arg_parse():
         max_num_nodes=4,
         num_examples=15000,
         latent_dimension=9,
-        epochs=5,
+        epochs=3,
         # device=torch.device("cpu"),
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
@@ -277,7 +268,9 @@ def main():
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():
-        adj, features_nodes, features_edges, smile, mol = model.generate(z, smile=True)
+        adj, features_nodes, features_edges, smile, mol, _ = model.generate(
+            z, smile=True
+        )
 
     rounded_adj_matrix = torch.round(adj)
     # features_nodes = torch.round(features_nodes)

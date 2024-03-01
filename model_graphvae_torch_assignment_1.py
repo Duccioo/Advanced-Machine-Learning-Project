@@ -17,102 +17,6 @@ a = sys.path.append((path.dirname(path.dirname(path.abspath(__file__)))))
 from utils.utils import graph_to_mol
 
 
-def hungarian_algorithm(costs):
-    # print(costs)
-    # obtain a column vector of minimum row values
-    row_mins, _ = torch.min(costs, dim=1, keepdim=True)
-    # subtract the tensor of minimum values (broadcasting the minimum value over each row)
-    costs = costs - row_mins
-    # obtain a row vector of minimum column values
-    col_mins, _ = torch.min(costs, dim=0, keepdim=True)
-    # subtract the tensor of minimum values (broadcasting the minimum value over each column)
-    costs = costs - col_mins
-    # proceed with partial assignment
-    row_zero_counts = costs.size(1) - torch.count_nonzero(costs, dim=1)
-    assigned_columns = []
-    assigned_rows = []
-    assignment = []
-    # assign rows in progressive order of available options
-    for opt in range(1, torch.max(row_zero_counts) + 1):
-        for i in torch.argwhere(row_zero_counts == opt):
-            for j in torch.argwhere(costs[i, :] == 0)[:, 1:]:
-                if i.item() not in assigned_rows and j.item() not in assigned_columns:
-                    assigned_rows.append(i.item())
-                    assigned_columns.append(j.item())
-                    assignment.append(torch.concatenate((i, j)))
-    # refine assignment until all the rows and columns are assigned
-    while len(assignment) < costs.size(0):
-        # mark unassigned rows
-        marked_rows = list(set(range(costs.size(0))) - set(assigned_rows))
-        # build queue of rows to examine
-        row_queue = list(set(range(costs.size(0))) - set(assigned_rows))
-        # initialize empty list of marked columns
-        marked_columns = []
-        # initialize empty queue of columns to examine
-        column_queue = []
-        # examine rows and columns until everything marked is examined
-        while len(row_queue) > 0:
-            # mark columns with zeros in marked rows
-            for j in torch.argwhere(costs[row_queue, :] == 0):
-                if j[1].item() not in marked_columns:
-                    marked_columns.append(j[1].item())
-                    column_queue.append(j[1].item())
-            # empty row queue
-            row_queue = []
-            # mark assigned rows with assignment on marked columns in the queue
-            for t in assignment:
-                if t[1].item() in column_queue and t[0].item() not in marked_rows:
-                    marked_rows.append(t[0].item())
-                    row_queue.append(t[0].item())
-            # empty column queue
-            column_queue = []
-        # obtain minimum uncovered element (on marked rows and unmarked columns)
-
-        try:
-
-            min_value = torch.min(
-                costs[marked_rows, :][
-                    :, list(set(range(costs.size(1))) - set(marked_columns))
-                ]
-            )
-        except:
-            min_value = 0
-
-        # subtract minimum value from uncovered elements
-        # print(min_value.item())
-        # print(costs[0, 0])
-
-        for i in marked_rows:
-            for j in list(set(range(costs.size(1))) - set(marked_columns)):
-                costs[i, j] = costs[i, j] - min_value
-        # and minimum value to double-covered elements
-        for i in list(set(range(costs.size(0))) - set(marked_rows)):
-            for j in marked_columns:
-                costs[i, j] = costs[i, j] + min_value
-        # re-assign everything
-        row_zero_counts = costs.size(1) - torch.count_nonzero(costs, dim=1)
-        assigned_columns = []
-        assigned_rows = []
-        assignment = []
-        # assign rows in progressive order of available options
-        for opt in range(1, torch.max(row_zero_counts) + 1):
-            for i in torch.argwhere(row_zero_counts == opt):
-                for j in torch.argwhere(costs[i, :] == 0)[:, 1:]:
-                    if (
-                        i.item() not in assigned_rows
-                        and j.item() not in assigned_columns
-                    ):
-                        assigned_rows.append(i.item())
-                        assigned_columns.append(j.item())
-                        assignment.append(torch.concatenate((i, j)))
-    # obtain final assignment tensor
-    assignment = [torch.reshape(a, (1, 2)) for a in assignment]
-    assignment = torch.concatenate(assignment, dim=0)
-    # return row indices and column inices as separate tensors
-    print("MA QUI CI SONO?")
-    return assignment[:, 0], assignment[:, 1]
-
-
 class GraphVAE(nn.Module):
     def __init__(
         self,
@@ -235,7 +139,7 @@ class GraphVAE(nn.Module):
                             S[i, j, a, b] = torch.abs(adj[i, j] - adj_recon[a, b])
         return S
 
-    def mpm(self, x_init, S, max_iters=50):
+    def mpm(self, x_init, S, max_iters=5):
         x = x_init
         for it in range(max_iters):
             x_new = torch.zeros(
@@ -339,11 +243,8 @@ class GraphVAE(nn.Module):
             )
             assignment = self.mpm(init_assignment, S)
 
-            # row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-            #     -assignment.detach().cpu().numpy()
-            # )
-            # Algoritmo ungherese implementato in torch per velocizzare le operazioni e fare tutto su gpu
-            row_ind, col_ind = hungarian_algorithm(assignment)
+            #Algoritmo ungherese implementato in torch per velocizzare le operazioni e fare tutto su gpu
+            row_ind, col_ind = self.class.hungarian_algorithm(assignment)
 
             adj_permuted = self.permute_adj(adj_true[i], row_ind, col_ind)
             adj_permuted_vectorized[i] = adj_permuted[
@@ -365,8 +266,6 @@ class GraphVAE(nn.Module):
         return loss
 
     def generate(self, z, smile: bool = False):
-        mol = None
-        smiles = ""
         with torch.no_grad():
             # z = z.clone().detach().to(dtype=torch.float32).to(device=device)
             h_decode, output_node_features, output_edge_features = self.vae.decoder(z)
@@ -383,86 +282,115 @@ class GraphVAE(nn.Module):
             recon_adj_lower = self.recover_adj_lower(out, device=self.device)
             recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-            # selezioni solo gli atomi dove la diagonale dell'adicenza è sopra una certa soglia:
-            # print("MATRICE ADIACENZA 1")
-            # print(recon_adj_tensor)
-            # recon_adj_tensor_rounded = torch.round(recon_adj_tensor + (0.5 - 0.30))
-            treshold_adj = 0.30
-            treshold_diag = 0.10
-            # Selezione delle righe e colonne con valore diagonale sopra 0.35
-            recon_adj_tensor = recon_adj_tensor[
-                recon_adj_tensor.diagonal() > treshold_diag, :
-            ][:, recon_adj_tensor.diagonal() > treshold_diag]
-            # print("MATRICE ADIACENZA 2")
-            # print(recon_adj_tensor)
-            indici_righe_selezionate = torch.where(
-                torch.diagonal(recon_adj_tensor) > treshold_diag
-            )[0]
-            # print(indici_righe_selezionate)
-
             recon_adj_tensor.fill_diagonal_(0)
+            recon_adj_tensor = torch.round(recon_adj_tensor)
 
-            # recon_adj_norm = (recon_adj_tensor - torch.min(recon_adj_tensor)) / (
-            #     torch.max(recon_adj_tensor) - torch.min(recon_adj_tensor)
+            n_one = (recon_adj_tensor == 1).sum().item() // 2
+            output_edge_features = output_edge_features[:, :n_one]
+
+            # sotto_matrice = torch.round(
+            #     F.softmax(output_node_features[:, :, 5:9], dim=2)
             # )
-            recon_adj_tensor_rounded = torch.round(
-                recon_adj_tensor + (0.5 - treshold_adj)
-            )
-            # recon_adj_tensor_rounded =torch.nn.Threshold(0.35, 0)(recon_adj_tensor)
-            # print(recon_adj_tensor_rounded)
 
-            n_one = (recon_adj_tensor_rounded == 1).sum().item() // 2
+            sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
+            indici = torch.argmax(sotto_matrice, dim=2)[0]
 
-            if n_one == 0 and recon_adj_tensor_rounded.shape[0] == 0:
-                mol = None
-                smiles = ""
-            else:
-                output_edge_features = output_edge_features[:, :n_one]
+            mol = None
 
-                # sotto_matrice = torch.round(
-                #     F.softmax(output_node_features[:, :, 5:9], dim=2)
-                # )
-
-                output_node_features = output_node_features[
-                    :, indici_righe_selezionate.tolist()
-                ]
-                # print(output_node_features)
-
-                sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
-                output_node_features[:, :, 5:9] = sotto_matrice.squeeze_()
-
-                # print("OUTPUT NODE FEATURES:")
-                # print(output_node_features)
-
-                # print("SOTTO MATRICE:")
-                # print(sotto_matrice)
-                try:
-                    indici = torch.argmax(sotto_matrice, dim=1)
-                except:
-                    indici = torch.argmax(sotto_matrice, dim=0)
-                # print(indici)
-                # exit()
-                indici = indici.tolist()
-                # print(indici)
-                if not isinstance(indici, list):
-                    indici = [indici]
-                if smile:
-                    mol, smiles = graph_to_mol(
-                        recon_adj_tensor_rounded.cpu(),
-                        indici,
-                        output_edge_features[0].cpu(),
-                        True,
-                        True,
-                    )
+            if smile:
+                mol, smile = graph_to_mol(
+                    recon_adj_tensor.cpu(),
+                    indici.cpu().numpy(),
+                    output_edge_features[0].cpu(),
+                    True,
+                    True,
+                )
 
             return (
-                recon_adj_tensor_rounded,
+                recon_adj_tensor,
                 output_node_features,
                 output_edge_features,
-                smiles,
+                smile,
                 mol,
-                n_one,
             )
 
     def save_vae_encoder(self, path):
         self.vae.save_encoder(path)
+        
+    @classmethod
+    def hungarian_algorithm(costs):
+        #obtain a column vector of minimum row values
+        row_mins, _ = torch.min(costs, dim=1, keepdim=True)
+        #subtract the tensor of minimum values (broadcasting the minimum value over each row)
+        costs = costs - row_mins
+        #obtain a row vector of minimum column values
+        col_mins, _ = torch.min(costs, dim=0, keepdim=True)
+        #subtract the tensor of minimum values (broadcasting the minimum value over each column)
+        costs = costs - col_mins
+        #proceed with partial assignment
+        row_zero_counts = costs.size(1) - torch.count_nonzero(costs, dim=1)
+        assigned_columns = []
+        assigned_rows = []
+        assignment = []
+        #assign rows in progressive order of available options
+        for opt in range(1,torch.max(row_zero_counts)+1):
+            for i in torch.argwhere(row_zero_counts == opt):
+                for j in torch.argwhere(costs[i,:] == 0)[:,1:]:
+                    if i.item() not in assigned_rows and j.item() not in assigned_columns:
+                        assigned_rows.append(i.item())
+                        assigned_columns.append(j.item())
+                        assignment.append(torch.concatenate((i,j)))
+        #refine assignment until all the rows and columns are assigned
+        while len(assignment) < costs.size(0):
+            #mark unassigned rows
+            marked_rows = list(set(range(costs.size(0))) - set(assigned_rows))
+            #build queue of rows to examine
+            row_queue = list(set(range(costs.size(0))) - set(assigned_rows))
+            #initialize empty list of marked columns
+            marked_columns = []
+            #initialize empty queue of columns to examine
+            column_queue = []
+            #examine rows and columns until everything marked is examined
+            while len(row_queue) > 0:
+                #mark columns with zeros in marked rows
+                for j in torch.argwhere(costs[row_queue,:] == 0):
+                    if j[1].item() not in marked_columns:
+                        marked_columns.append(j[1].item())
+                        column_queue.append(j[1].item())
+                #empty row queue
+                row_queue = []
+                #mark assigned rows with assignment on marked columns in the queue
+                for t in assignment:
+                    if t[1].item() in column_queue and t[0].item() not in marked_rows:
+                        marked_rows.append(t[0].item())
+                        row_queue.append(t[0].item())
+                #empty column queue
+                column_queue = []
+            #obtain minimum uncovered element (on marked rows and unmarked columns)
+            min_value = torch.min(costs[marked_rows,:][:,list(set(range(costs.size(1)))-set(marked_columns))])
+            #subtract minimum value from uncovered elements
+            for i in marked_rows:
+                for j in list(set(range(costs.size(1)))-set(marked_columns)):
+                    costs[i,j] = costs[i,j] - min_value
+            #and minimum value to double-covered elements
+            for i in list(set(range(costs.size(0)))-set(marked_rows)):
+                for j in marked_columns:
+                    costs[i,j] = costs[i,j] + min_value
+            #re-assign everything
+            row_zero_counts = costs.size(1) - torch.count_nonzero(costs, dim=1)
+            assigned_columns = []
+            assigned_rows = []
+            assignment = []
+            #assign rows in progressive order of available options
+            for opt in range(1,torch.max(row_zero_counts)+1):
+                for i in torch.argwhere(row_zero_counts == opt):
+                    for j in torch.argwhere(costs[i,:] == 0)[:,1:]:
+                        if i.item() not in assigned_rows and j.item() not in assigned_columns:
+                            assigned_rows.append(i.item())
+                            assigned_columns.append(j.item())
+                            assignment.append(torch.concatenate((i,j)))
+        #obtain final assignment tensor
+        assignment = [torch.reshape(a, (1,2)) for a in assignment]
+        assignment = torch.concatenate(assignment, dim=0)
+        #return row indices and column inices as separate tensors
+        return assignment[:,0], assignment[:,1]
