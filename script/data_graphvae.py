@@ -1,9 +1,13 @@
+import os
 import networkx as nx
 import numpy as np
+
 import torch
+from torch.utils.data import random_split
 
 from torch_geometric.transforms import BaseTransform
-from torch_geometric.utils import to_dense_adj
+import torch_geometric.transforms as T
+from torch_geometric.datasets import QM9
 
 import rdkit.Chem as Chem
 
@@ -168,12 +172,10 @@ def pad_features(features_matrix, target_size):
 def create_padded_graph_list(
     dataset,
     max_num_nodes_padded=-1,
-    add_edge_features: bool = False,
     remove_duplicates_features: bool = True,
 ):
 
     max_num_nodes = max_num_nodes_padded
-
     # max_num_edges = max([data.num_edges for data in dataset])
 
     # numero massimo teorico per un graph
@@ -210,150 +212,6 @@ def create_padded_graph_list(
         graph_list.append(graph)
 
     return graph_list, max_num_nodes, max_num_edges
-
-
-def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
-    mol = Chem.RWMol()
-    smiles = ""
-
-    atomic_numbers = {0: "C", 1: "N", 2: "O", 3: "F"}
-
-    # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
-    bond_types = {
-        0: Chem.rdchem.BondType.SINGLE,
-        1: Chem.rdchem.BondType.DOUBLE,
-        2: Chem.rdchem.BondType.TRIPLE,
-        3: Chem.rdchem.BondType.AROMATIC,
-    }
-    # print(f"Node Labels {node_labels}")
-    for node_label in node_labels:
-        print(f"Adding atom {atomic_numbers[node_label]}")
-        mol.AddAtom(Chem.Atom(atomic_numbers[node_label]))
-
-    idx = 0
-    print("----________", np.nonzero(adj).tolist())
-    # print(edge_features)
-    for edge in np.nonzero(adj).tolist():
-        start, end = edge[0], edge[1]
-        if start > end:
-            bond_type_one_hot = int((edge_features[idx]).argmax())
-            bond_type = bond_types[bond_type_one_hot]
-            print(f"ADDING BOUND {bond_type} to {start} and {end}")
-            idx += 1
-
-            try:
-                mol.AddBond(int(start), int(end), bond_type)
-            except:
-                print("ERROR Impossibile aggiungere legame, Molecola incompleta")
-    if sanitize:
-        try:
-            Chem.SanitizeMol(mol)
-        except Exception:
-            print("Sanitize Failed")
-            # mol = None
-
-    if cleanup:
-        try:
-            mol = Chem.AddHs(mol)
-            smiles = Chem.MolToSmiles(mol)
-            print("QUESTA è una parziale SMILES", smiles)
-
-            smiles = max(smiles.split("."), key=len)
-            if "*" not in smiles:
-                mol = Chem.MolFromSmiles(smiles)
-            else:
-                print("mol from smiles failed")
-                mol = None
-        except Exception:
-            print("error generic")
-            smiles = Chem.MolToSmiles(mol)
-
-            mol = None
-
-    if smiles == "" or smiles == None:
-        print("ERROR impossibile creare Molecola")
-
-    return mol, smiles
-
-
-def data_to_smiles(
-    node_features, edge_features, adj_matrix, atomic_numbers_idx: int = 5
-):
-    # Crea un dizionario per mappare i numeri atomici ai simboli atomici
-    # atomic_numbers = {1: "H", 6: "C", 7: "N", 8: "O", 9: "F"}
-    atomic_numbers = {0: "H", 1: "C", 2: "N", 3: "O", 4: "F"}
-
-    # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
-    bond_types = {
-        0: Chem.rdchem.BondType.SINGLE,
-        1: Chem.rdchem.BondType.DOUBLE,
-        2: Chem.rdchem.BondType.TRIPLE,
-        3: Chem.rdchem.BondType.AROMATIC,
-    }
-
-    # Creazione di un elenco di archi dall'adiacenza
-    edges_index = torch.nonzero(adj_matrix, as_tuple=False).t()
-    print("edges index ", edges_index)
-
-    # Crea un oggetto molecola vuoto
-    mol = Chem.RWMol()
-
-    # Aggiungi gli atomi alla molecola
-    print(len(node_features.tolist()))
-    number_atom = 0
-    for idx, atom in enumerate(node_features.tolist()):
-        number_atom += 1
-        # atom = mol.AddAtom(Chem.Atom(atomic_numbers[int(atom[atomic_numbers_idx])]))
-        # print(data.x)
-        print((node_features[idx]))
-        if int(node_features[idx]) != 0:
-            atom_ = Chem.Atom(atomic_numbers[int(node_features[idx])])
-            # print(data.pos[idx, 0])
-            # atom_.SetDoubleProp("x", data.pos[idx, 0].item())
-            # atom_.SetDoubleProp("y", data.pos[idx, 1].item())
-            # atom_.SetDoubleProp("z", data.pos[idx, 2].item())
-            mol.AddAtom(atom_)
-
-    # Aggiungi i legami alla molecola
-    edge_index = edges_index.tolist()
-    print("------MMmmmmMMM---")
-    print(edge_index)
-    bond_saved = []
-    edge_features = edge_features.squeeze_()
-    print(edge_features.shape)
-    indixe_features = 0
-    for idx, start_end in enumerate(zip(edge_index[0], edge_index[1])):
-        start, end = start_end
-
-        if (
-            (start, end) not in bond_saved
-            and (end, start) not in bond_saved
-            and start != end
-        ):
-            try:
-                print(edge_features)
-                bond_type_one_hot = int((edge_features[indixe_features]).argmax())
-            except:
-                print("__--___--__")
-                edge_features = edge_features.repeat(2, 1)
-                print(edge_features.shape)
-                print(".......")
-                print(edge_features.shape)
-                bond_type_one_hot = int((edge_features[indixe_features]).argmax())
-            indixe_features += 1
-
-            bond_type = bond_types[bond_type_one_hot]
-            mol.AddBond(start, end, bond_type)
-
-            print("Bound saved, ", start, end, bond_type)
-            bond_saved.append((start, end))
-        else:
-            print("legame ", start, end, "gia presente")
-
-    # Converti la molecola in una stringa SMILES
-    smiles = Chem.MolToSmiles(mol)
-    print(smiles)
-    return smiles, number_atom
 
 
 def smiles_to_graph(smiles):
@@ -423,6 +281,81 @@ def graph_to_molecule(graph):
         return None
 
     return molecule
+
+
+def load_QM9(
+    max_num_nodes=6,
+    num_examples=1000,
+    batch_size=5,
+    dataset_split_list=(0.7, 0.2, 0.1),
+    apriori_max_num_nodes=-1,
+    num_workers=2,
+):
+    apriori_max_num_nodes = -1
+
+    # loading dataset
+    dataset = QM9(
+        root=os.path.join("data", "QM9"),
+        pre_filter=T.ComposeFilters(
+            [FilterSingleton(), FilterMaxNodes(apriori_max_num_nodes)]
+        ),
+        pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
+        transform=T.Compose([ToTensor()]),
+    )
+
+    num_graphs_raw = len(dataset)
+    print("Number of graphs raw: ", num_graphs_raw)
+
+    dataset = dataset[0:num_examples]
+    print("Number of graphs: ", len(dataset))
+
+    # Filtra i grafi con un numero di nodi maggiore di 10
+    dataset = [data for data in dataset if data.num_nodes <= max_num_nodes]
+
+    max_num_nodes = max([dataset[i].num_nodes for i in range(len(dataset))])
+
+    dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
+        dataset,
+        max_num_nodes,
+    )
+
+    # split dataset
+    train_size = int(dataset_split_list[0] * len(dataset))
+    test_size = int(dataset_split_list[1] * len(dataset))
+    val_size = int(dataset_split_list[2] * len(dataset))
+    # val_size = len(dataset) - train_size - test_size
+
+    train_dataset, val_dataset, test_dataset = random_split(
+        dataset_padded, [train_size, val_size, test_size]
+    )
+
+    train_dataset_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+    )
+
+    test_dataset_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+    )
+
+    val_dataset_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        shuffle=False,
+        batch_size=batch_size,
+        num_workers=num_workers,
+    )
+
+    return (
+        dataset,
+        dataset_padded,
+        train_dataset_loader,
+        test_dataset_loader,
+        val_dataset_loader,
+        max_num_nodes,
+    )
 
 
 if __name__ == "__main__":

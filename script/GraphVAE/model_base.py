@@ -48,7 +48,6 @@ def sample_tensor(y, sample=True, thresh=0.5):
 
 def gumbel_softmax(logits, temperature, eps=1e-9):
     """
-
     :param logits: shape: N*L
     :param temperature:
     :param eps:
@@ -466,9 +465,9 @@ class MLP_VAE_plain(nn.Module):
     def forward(self, h):
 
         z, z_mu, z_lsgms = self.encoder(h)
-        
+
         y, n_features, e_features = self.decoder(z)
-    
+
         return y, z_mu, z_lsgms, n_features, e_features
 
     def save_encoder(self, path_to_save_model):

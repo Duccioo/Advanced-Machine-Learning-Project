@@ -1,6 +1,6 @@
 import argparse
 import os
-
+from datetime import datetime
 
 import numpy as np
 
@@ -8,34 +8,20 @@ import numpy as np
 import torch
 from torch import optim
 from torch.optim.lr_scheduler import MultiStepLR
-from torch.utils.data import random_split
-
-import torch_geometric.transforms as T
-from torch_geometric.datasets import QM9
-
-from rdkit import Chem
 from rdkit.Chem import Draw
 
 
 # ---
-from model_graphvae import GraphVAE
-from data_graphvae import (
-    create_padded_graph_list,
-    data_to_smiles,
-    FilterSingleton,
-    AddAdj,
-    OneHotEncoding,
-    ToTensor,
-    CostumPad,
-    FilterMaxNodes,
-)
+from GraphVAE.model_graphvae import GraphVAE
+from data_graphvae import load_QM9
+
 from utils import (
     pit,
     load_from_checkpoint,
     save_checkpoint,
-    save_model,
-    log_and_plot_metrics,
+    log_metrics,
     latest_checkpoint,
+    set_seed,
 )
 
 
@@ -51,12 +37,10 @@ def build_model(
 
     # out_dim = max_num_nodes * (max_num_nodes + 1) // 2
     # print(num_features)
-    # print(max_num_nodes)
 
     input_dim = len_num_features
     model = GraphVAE(
         input_dim,
-        256,
         latent_dimension,
         max_num_nodes=max_num_nodes,
         max_num_edges=max_num_edges,
@@ -87,38 +71,33 @@ def train(
     steps_saved = 0
     running_steps = 0
     val_accuracy = 0
+    train_date_loss = []
 
     # Checkpoint load
     if os.path.isdir(checkpoints_dir):
         print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
         checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
 
-    if checkpoint is not None:
-        if os.path.isfile(checkpoint):
-            steps_saved, epochs_saved = load_from_checkpoint(
-                checkpoint,
-                model,
-                optimizer,
-            )
-            print(
-                f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}"
-            )
-    else:
-        print("Nessun checkpoint trovato")
-        try:
-            checkpoint = os.mkdir(checkpoints_dir)
-        except:
-            pass
+    if checkpoint is not None and os.path.isfile(checkpoint):
+        steps_saved, epochs_saved, train_date_loss = load_from_checkpoint(
+            checkpoint, model, optimizer, scheduler
+        )
+        print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
 
     for epoch in range(0, epochs):
-        # if epoch < epochs_saved:
-        #     continue
+        if epoch < epochs_saved:
+            continue
 
         model.train()
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in enumerate(train_loader):
+        for i, data in pit(
+            enumerate(train_loader),
+            total=len(train_loader),
+            color="red",
+            desc="Batch",
+        ):
             if running_steps < steps_saved:
                 running_steps += 1
                 continue
@@ -128,6 +107,7 @@ def train(
             adj_input = data["adj"].float().to(device)
 
             model.zero_grad()
+
             adj_vec, mu, var, node_recon, edge_recon = model(features_nodes)
 
             loss = model.loss(
@@ -149,17 +129,7 @@ def train(
             # Calculate validation accuracy
 
             running_steps += 1
-
-        # model.eval()
-        # correct = 1
-        # total = 1
-        # with torch.no_grad():
-        #     for data in val_loader:
-
-        #         total = 1
-        #         correct = 1
-
-        # val_accuracy = 100 * correct / total
+            train_date_loss.append((datetime.now(), loss.item()))
 
         print(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
@@ -167,13 +137,28 @@ def train(
         print("Sto salvando il modello...")
         save_checkpoint(
             checkpoints_dir,
-            "checkpoint",
+            f"checkpoint_{epoch}",
             model,
             running_steps,
             epoch + 1,
+            train_date_loss,
             optimizer,
             scheduler,
         )
+
+    print("logging")
+
+    train_loss = [x[1] for x in train_date_loss]
+
+    date = [x[0] for x in train_date_loss]
+    log_metrics(
+        epochs,
+        total_batch=len(train_loader),
+        train_loss=train_loss,
+        date=date,
+        title="Training Loss",
+        plot_save=True,
+    )
 
 
 def count_edges(adj_matrix):
@@ -212,11 +197,11 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=5,
+        batch_size=15,
         num_workers=1,
         max_num_nodes=4,
-        num_examples=1000,
-        latent_dimension=5,
+        num_examples=15000,
+        latent_dimension=9,
         epochs=5,
         # device=torch.device("cpu"),
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
@@ -230,8 +215,7 @@ def save_png(mol, filepath, size=(600, 600)):
 
 def main():
 
-    np.random.seed(42)
-    torch.manual_seed(42)
+    set_seed(42)
 
     prog_args = arg_parse()
 
@@ -240,75 +224,39 @@ def main():
     filter_apriori_max_num_nodes = -1
 
     # loading dataset
-    dataset = QM9(
-        root=os.path.join("data", "QM9"),
-        pre_filter=T.ComposeFilters(
-            [FilterSingleton(), FilterMaxNodes(filter_apriori_max_num_nodes)]
-        ),
-        pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
-        transform=T.Compose([ToTensor()]),
-    )
+    num_nodes_features = 17
+    num_edges_features = 4
+    max_num_nodes = 9
 
-    num_graphs_raw = len(dataset)
-    print("Number of graphs raw: ", num_graphs_raw)
-
-    dataset = dataset[0 : prog_args.num_examples]
-    print("Number of graphs: ", len(dataset))
-
-    # Filtra i grafi con un numero di nodi maggiore di 10
-    filter_aposterior_max_num_nodes = 6
-    dataset = [
-        data for data in dataset if data.num_nodes <= filter_aposterior_max_num_nodes
-    ]
-
-    max_num_nodes = max([dataset[i].num_nodes for i in range(len(dataset))])
-    max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
-
-    dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
-        dataset,
+    # LOAD DATASET QM9:
+    (
+        _,
+        _,
+        train_dataset_loader,
+        test_dataset_loader,
+        val_dataset_loader,
         max_num_nodes,
-        add_edge_features=True,
-    )
-
-    # split dataset
-    train_size = int(0.7 * len(dataset))
-    val_size = int(0.1 * len(dataset))
-    test_size = len(dataset) - train_size - val_size
-
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset_padded, [train_size, val_size, test_size]
-    )
-
-    print(
-        "total graph num: {}, training set: {}".format(len(dataset_padded), train_size)
-    )
-    print("max number node: {}".format(max_num_nodes))
-
-    train_dataset_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        batch_size=prog_args.batch_size,
-        num_workers=prog_args.num_workers,
-    )
-
-    val_dataset_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        shuffle=False,
-        batch_size=prog_args.batch_size,
-        num_workers=prog_args.num_workers,
-    )
+    ) = load_QM9(max_num_nodes, prog_args.num_examples, prog_args.batch_size)
+    max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
 
     print("-------- TRAINING: --------")
 
+    print(
+        "training set: {}".format(
+            len(train_dataset_loader) * train_dataset_loader.batch_size
+        )
+    )
+
     print("max num edges:", max_num_edges)
     print("max num nodes:", max_num_nodes)
-    print("num edges features", dataset_padded[0]["features_edges"].shape[1])
-    print("num nodes features", dataset_padded[0]["features_nodes"].shape[1])
+    print("num edges features", num_edges_features)
+    print("num nodes features", num_nodes_features)
     model = build_model(
         max_num_nodes=max_num_nodes,
         max_num_edges=max_num_edges,
-        num_nodes_features=dataset_padded[0]["features_nodes"].shape[1],
-        num_edges_features=dataset_padded[0]["features_edges"].shape[1],
-        len_num_features=dataset_padded[0]["features_nodes"].shape[0],
+        num_nodes_features=num_nodes_features,
+        num_edges_features=num_edges_features,
+        len_num_features=max_num_nodes,
         latent_dimension=prog_args.latent_dimension,
         device=device,
     )
@@ -324,22 +272,21 @@ def main():
 
     # ---- INFERENCE ----
     # Generazione di un vettore di rumore casuale
-    np.random.seed()
-    z = torch.randn(1, prog_args.latent_dimension)
+    z = torch.randn(1, prog_args.latent_dimension).to(device)
+    z = torch.randn(1, prog_args.latent_dimension).to(device)
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():
-        adj, features_nodes, features_edges, smile = model.generate(
-            z, device=device, smile=True
-        )
+        adj, features_nodes, features_edges, smile, mol = model.generate(z, smile=True)
 
     rounded_adj_matrix = torch.round(adj)
     # features_nodes = torch.round(features_nodes)
     # features_edges = torch.round(features_edges)
     print("ORIGINAL MATRIX")
-    print(train_dataset[0]["adj"])
-    print(train_dataset[0]["features_nodes"])
-    print(train_dataset[0]["smiles"])
+    first_molecula = next(iter(train_dataset_loader))
+    print(first_molecula["adj"][0])
+    print(first_molecula["features_nodes"][0])
+    print(first_molecula["smiles"][0])
     print("##" * 10)
     print("Predicted MATRIX")
     print(rounded_adj_matrix)
@@ -351,13 +298,10 @@ def main():
     print("MATCH DELLE MATRICI")
     print(features_edges.shape)
     print(count_edges(rounded_adj_matrix))
-    model.save_vae_encoder("main")
+    # model.save_vae_encoder("main")
 
     save_filepath = os.path.join("", "mol_{}.png".format(1))
-    print("AAAAAAAAA")
     print(smile)
-    mol = Chem.MolFromSmiles(smile)
-    mol = Chem.AddHs(mol)
     save_png(mol, save_filepath, size=(600, 600))
 
 

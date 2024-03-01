@@ -3,23 +3,24 @@ import scipy.optimize
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.nn.init as init
 
-from model import GraphConv, MLP_VAE_plain
+from GraphVAE.model_base import GraphConv, MLP_VAE_plain
 
-import time
 
 # ---
-from data_graphvae import data_to_smiles, graph_to_mol
+import sys
+from os import path
+
+a = sys.path.append((path.dirname(path.dirname(path.abspath(__file__)))))
+from utils.utils import graph_to_mol
 
 
 class GraphVAE(nn.Module):
     def __init__(
         self,
         input_dim,
-        hidden_dim,
         latent_dim,
         max_num_nodes,
         max_num_edges,
@@ -35,11 +36,6 @@ class GraphVAE(nn.Module):
             latent_dim: dimension of the latent representation of graph.
         """
         super(GraphVAE, self).__init__()
-        # self.conv1 = GraphConv(input_dim=input_dim, output_dim=hidden_dim)
-        # self.bn1 = nn.BatchNorm1d(input_dim)
-        # self.conv2 = GraphConv(input_dim=hidden_dim, output_dim=hidden_dim)
-        # self.bn2 = nn.BatchNorm1d(input_dim)
-        # self.act = nn.ReLU()
 
         output_dim = max_num_nodes * (max_num_nodes + 1) // 2
         self.num_nodes_features = num_nodes_features
@@ -50,7 +46,6 @@ class GraphVAE(nn.Module):
         self.max_num_nodes = max_num_nodes
         self.device = device
 
-        # self.vae = MLP_VAE_plain(hidden_dim, latent_dim, output_dim)
         self.vae = MLP_VAE_plain(
             self.input_dimension * self.num_nodes_features,
             latent_dim,
@@ -58,8 +53,6 @@ class GraphVAE(nn.Module):
             device=device,
             e_size=max_num_edges * self.num_edges_features,
         ).to(device=device)
-
-        # self.feature_mlp = MLP_plain(latent_dim, latent_dim, output_dim)
 
         for m in self.modules():
             if isinstance(m, GraphConv):
@@ -104,15 +97,10 @@ class GraphVAE(nn.Module):
         return out
 
     def deg_feature_similarity(self, f1, f2):
-        result = 1 / (abs(f1 - f2) + 1)
-        # print(result.shape)
-        return result
-
-    def deg_feature_similarity_2(self, f1, f2):
         edge_similarity = F.cosine_similarity(f1, f2, dim=0)
         return edge_similarity
 
-    def edge_similarity_matrix_1(
+    def edge_similarity_matrix(
         self, adj, adj_recon, matching_features, matching_features_recon, sim_func
     ):
         S = torch.zeros(
@@ -130,16 +118,16 @@ class GraphVAE(nn.Module):
                     for a in range(self.max_num_nodes):
 
                         # calcolo la similarità nei loop
-                        # try:
-                        #     S[i, i, a, a] = (
-                        #         adj[i, i]
-                        #         * adj_recon[a, a]
-                        #         * sim_func(
-                        #             matching_features[i], matching_features_recon[a]
-                        #         )
-                        #     )
-                        # except:
-                        S[i, i, a, a] = 0
+                        try:
+                            S[i, i, a, a] = (
+                                adj[i, i]
+                                * adj_recon[a, a]
+                                * sim_func(
+                                    matching_features[i], matching_features_recon[a]
+                                )
+                            )
+                        except:
+                            S[i, i, a, a] = 0
 
                     # with feature not implemented
                     # if input_features is not None:
@@ -148,43 +136,7 @@ class GraphVAE(nn.Module):
                         for b in range(self.max_num_nodes):
                             if b == a:
                                 continue
-
                             S[i, j, a, b] = torch.abs(adj[i, j] - adj_recon[a, b])
-        return S
-
-    import torch
-
-    def edge_similarity_matrix(
-        self, adj, adj_recon, matching_features, matching_features_recon, sim_func
-    ):
-        S = torch.zeros(
-            self.max_num_nodes,
-            self.max_num_nodes,
-            self.max_num_nodes,
-            self.max_num_nodes,
-            device=self.device,
-        )
-
-        for i in range(self.max_num_nodes):
-            for j in range(self.max_num_nodes):
-                if i == j:
-                    S[i, i, :, :] = (
-                        adj[i, i]
-                        * adj_recon[:, :]
-                        * sim_func(matching_features[i], matching_features_recon[j])
-                    )
-
-                    # Set diagonal elements to zero
-                    S[
-                        i,
-                        i,
-                        torch.arange(self.max_num_nodes),
-                        torch.arange(self.max_num_nodes),
-                    ] = 0
-                else:
-                    # Calculate the absolute difference using vectorized operations
-                    S[i, j, :, :] = torch.abs(adj[i, j] - adj_recon[:, :])
-
         return S
 
     def mpm(self, x_init, S, max_iters=5):
@@ -211,14 +163,6 @@ class GraphVAE(nn.Module):
         return x
 
     def forward(self, nodes_features):
-        # x = self.conv1(input_features, adj)
-        # x = self.bn1(x)
-        # x = self.act(x)
-        # x = self.conv2(x, adj)
-        # x = self.bn2(x)
-
-        # pool over all nodes
-        # graph_h = self.pool_graph(x)
         graph_h = nodes_features.reshape(
             -1, self.input_dimension * self.num_nodes_features
         )
@@ -270,6 +214,7 @@ class GraphVAE(nn.Module):
 
         adj_permuted_vectorized = adj_recon_vector.clone().to(self.device)
 
+        # LENTISSIMOO...
         for i in range(adj_recon_vector.shape[0]):
             recon_adj_lower = self.recover_adj_lower(adj_recon_vector[i], self.device)
 
@@ -277,7 +222,6 @@ class GraphVAE(nn.Module):
                 upper_triangular_indices[0], upper_triangular_indices[1]
             ]
             adj_mask = adj_wout_diagonal.repeat(edges_recon.shape[2], 1).T
-
             masked_edges_recon_features = edges_recon[i] * adj_mask
             edges_recon_features_total[i] = masked_edges_recon_features.reshape(
                 -1, edges_recon.shape[2]
@@ -290,7 +234,7 @@ class GraphVAE(nn.Module):
                 recon_adj_tensor,
                 edges_true[i],
                 edges_recon[i],
-                self.deg_feature_similarity_2,
+                self.deg_feature_similarity,
             )
 
             init_assignment = (
@@ -322,9 +266,9 @@ class GraphVAE(nn.Module):
 
         return loss
 
-    def generate(self, z, device="cpu", smile=False):
+    def generate(self, z, smile: bool = False):
         with torch.no_grad():
-            z = z.clone().detach().to(dtype=torch.float32).to(device=device)
+            # z = z.clone().detach().to(dtype=torch.float32).to(device=device)
             h_decode, output_node_features, output_edge_features = self.vae.decoder(z)
 
             output_node_features = output_node_features.view(
@@ -348,22 +292,28 @@ class GraphVAE(nn.Module):
             # sotto_matrice = torch.round(
             #     F.softmax(output_node_features[:, :, 5:9], dim=2)
             # )
+
             sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
-            print(f"Sotto Matrice::::: {sotto_matrice}")
-            print(f"OUTPUT node Features {output_node_features} ")
             indici = torch.argmax(sotto_matrice, dim=2)[0]
 
+            mol = None
+
             if smile:
-                _, smile = graph_to_mol(
+                mol, smile = graph_to_mol(
                     recon_adj_tensor.cpu(),
                     indici.cpu().numpy(),
                     output_edge_features[0].cpu(),
                     True,
                     True,
                 )
-                print(smile)
 
-            return recon_adj_tensor, output_node_features, output_edge_features, smile
+            return (
+                recon_adj_tensor,
+                output_node_features,
+                output_edge_features,
+                smile,
+                mol,
+            )
 
     def save_vae_encoder(self, path):
         self.vae.save_encoder(path)

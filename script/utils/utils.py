@@ -1,18 +1,40 @@
 import os
+import random
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torchinfo import summary
 from datetime import datetime
-import json
+import rdkit.Chem as Chem
+
+from datetime import datetime
 
 # ---
-import telegram_alert
-
 _checkpoint_base_name = "checkpoint_"
 
 
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
+
+
 def check_base_dir(*args):
+    """
+    A function to check and create a directory based on the given arguments.
+
+    Parameters:
+    *args: variable number of arguments representing the path components
+
+    Returns:
+    str: the full path after checking and creating the directory
+    """
     # take the full path of the folder
     absolute_path = os.path.dirname(__file__)
 
@@ -35,9 +57,75 @@ def check_base_dir(*args):
 
         # check the path exists
         if not os.path.exists(full_path):
+            # if doesn't, create it:
             os.makedirs(full_path)
 
     return full_path
+
+
+def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
+    mol = Chem.RWMol()
+    smiles = ""
+
+    atomic_numbers = {0: "C", 1: "N", 2: "O", 3: "F"}
+
+    # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
+    bond_types = {
+        0: Chem.rdchem.BondType.SINGLE,
+        1: Chem.rdchem.BondType.DOUBLE,
+        2: Chem.rdchem.BondType.TRIPLE,
+        3: Chem.rdchem.BondType.AROMATIC,
+    }
+    # print(f"Node Labels {node_labels}")
+    for node_label in node_labels:
+        # print(f"Adding atom {atomic_numbers[node_label]}")
+        mol.AddAtom(Chem.Atom(atomic_numbers[node_label]))
+
+    idx = 0
+    # print("----________", np.nonzero(adj).tolist())
+    # print(edge_features)
+    for edge in np.nonzero(adj).tolist():
+        start, end = edge[0], edge[1]
+        if start > end:
+            bond_type_one_hot = int((edge_features[idx]).argmax())
+            bond_type = bond_types[bond_type_one_hot]
+            # print(f"ADDING BOUND {bond_type} to {start} and {end}")
+            idx += 1
+
+            try:
+                mol.AddBond(int(start), int(end), bond_type)
+            except:
+                print("ERROR Impossibile aggiungere legame, Molecola incompleta")
+
+    if sanitize:
+        try:
+            Chem.SanitizeMol(mol)
+        except Exception:
+            print("Sanitize Failed")
+            # mol = None
+
+    if cleanup:
+        try:
+            mol = Chem.AddHs(mol)
+            smiles = Chem.MolToSmiles(mol)
+            # print("QUESTA è una parziale SMILES", smiles)
+
+            smiles = max(smiles.split("."), key=len)
+            if "*" not in smiles:
+                mol = Chem.MolFromSmiles(smiles)
+            else:
+                print("mol from smiles failed")
+                mol = None
+        except Exception:
+            print("error generic")
+            smiles = Chem.MolToSmiles(mol)
+
+            mol = None
+
+    if smiles == "" or smiles == None:
+        print("ERROR impossibile creare Molecola")
+
+    return mol, smiles
 
 
 # ------------------------------------SAVING & LOADING-----------------------------------------
@@ -60,29 +148,51 @@ def load_from_checkpoint(checkpoint_path, model, optimizer=None, schedule=None):
     if schedule is not None:
         schedule.load_state_dict(data["schedule"])
 
-    return (data["step"], data["epoch"])
+    try:
+        data.get("loss")
+        element = (data["step"], data["epoch"], data["loss"])
+    except:
+        element = (data["step"], data["epoch"])
+    return element
 
 
 def save_checkpoint(
-    checkpoint_path, checkpoint_name, model, step, epoch, optimizer=None, schedule=None
+    checkpoint_path,
+    checkpoint_name,
+    model,
+    step,
+    epoch,
+    loss: list = None,
+    optimizer=None,
+    schedule=None,
 ):
     """
-    Save model to a checkpoint file.
-    Parameters:
-        - checkpoint_path (str): path to checkpoint
-        - checkpoint_name (str): name of checkpoint
-        - model (nn.Module): model model
-        - discriminator (str): discriminator
-        - step (int): current step
-        - epoch (int): current epoch
-        - optimizer (torch.optim): optimizer for model
-    """
+    Save a checkpoint for the model's state, including step, epoch, loss, optimizer, and schedule information.
+        Parameters:
+            checkpoint_path (str): The path to save the checkpoint.
+            checkpoint_name (str): The name of the checkpoint file.
+            model (nn.Module): The model for which the checkpoint is being saved.
+            step (int): The current step of the training process.
+            epoch (int): The current epoch of the training process.
+            loss (list, optional): The loss information to be included in the checkpoint. Defaults to None.
+            optimizer (torch.optim.Optimizer, optional): The optimizer's state to be included in the checkpoint. Defaults to None.
+            schedule (torch.optim.lr_scheduler._LRScheduler, optional): The schedule's state to be included in the checkpoint. Defaults to None.
+        Returns:
+            None
 
+    """
     state_dict = {
         "step": step,
         "epoch": epoch,
         "model": model.state_dict(),
     }
+    if loss is not None:
+        state_dict.update(
+            {
+                "loss": loss,
+            }
+        )
+
     if optimizer is not None:
         state_dict.update(
             {
@@ -111,6 +221,8 @@ def latest_checkpoint(root_dir, base_name):
         - root_dir (str): root directory
         - base_name (str): base name of checkpoint
     """
+    check_base_dir(root_dir)
+
     checkpoints = [chkpt for chkpt in os.listdir(root_dir) if base_name in chkpt]
     if len(checkpoints) == 0:
         return None
@@ -153,92 +265,6 @@ def clean_old_checkpoint(folder_path, percentage):
         # elimina il file
         if file_name.endswith(".pt"):
             os.remove(file_path)
-
-
-def save_model(
-    path,
-    name,
-    model,
-    discriminator,
-    batch_size,
-    model_size,
-    discriminator_size,
-):
-    """
-    Using summary function from torchinfo save the model architecture in a json file.
-
-    Parameters:
-        - path: path to save the model architecture
-        - name: name of the file to save
-        - model: model model
-        - discriminator: discriminator model
-        - batch_size: batch size, parameter for function summary
-        - model_size: model size, parameter for function summary
-        - discriminator_size: discriminator size, parameter for function summary
-    """
-
-    # create new dictionary
-    models = {"model": {}, "discriminator": {}}
-
-    # prima mi carico il modele
-    gen_sum = summary(
-        model,
-        input_size=(batch_size, model_size),
-        verbose=0,
-        col_names=["output_size"],
-    )
-    gen_arch = str(gen_sum).split(
-        "================================================================="
-    )[2]
-
-    gen_size = str(gen_sum).split(
-        "================================================================="
-    )[4]
-
-    for line in gen_arch.split("├─"):
-        line.split("                  ")
-        models["model"][line.split("                  ")[0].strip()] = line.split(
-            "                  "
-        )[1].strip()
-
-    for line in gen_size.split("\n"):
-        try:
-            models["model"][line.split(":")[0]] = float(line.split(":")[1])
-        except:
-            pass
-
-    # passo al discriminatore
-    disc_sum = summary(
-        discriminator,
-        input_size=((batch_size,) + discriminator_size),
-        verbose=0,
-        col_names=["output_size"],
-    )
-    disc_arch = str(disc_sum).split(
-        "================================================================="
-    )[2]
-
-    disc_size = str(disc_sum).split(
-        "================================================================="
-    )[4]
-
-    for line in disc_arch.split("├─"):
-        line.split("                  ")
-        models["discriminator"][line.split("                  ")[0].strip()] = (
-            line.split("                  ")[1].strip()
-        )
-
-    for line in disc_size.split("\n"):
-        try:
-            models["discriminator"][line.split(":")[0]] = float(line.split(":")[1])
-        except:
-            pass
-
-    if os.path.isdir(path) == False:
-        os.mkdir(path)
-
-    with open(os.path.join(path, name + ".json"), "w") as f:
-        json.dump(models, f)
 
 
 def save_validation(
@@ -392,52 +418,117 @@ def log(
         clean_old_checkpoint(checkpoints_dir, 0.5)
 
 
-def log_and_plot_metrics(
-    epochs,
-    train_loss,
-    train_accuracy,
-    val_accuracy,
-    log_file_path,
-    plot_file_path,
-    show=False,
+def log_metrics(
+    epochs: int,
+    train_loss: list,
+    train_accuracy: list = [],
+    val_accuracy: list = [],
+    date: list = [],
+    total_batch: int = None,
+    log_file_path: str = None,
+    plot_file_path: str = None,
+    metric_name: str = "Accuracy",
+    title: str = "Training and Validation Metrics",
+    plot_show: bool = False,
+    plot_save: bool = False,
 ):
     """
     Log loss and accuracy metrics at each epoch and create a plot.
-
+    By default the metrics are saved in the "logs" folder in the current directory.
     Args:
         epochs (int): Total number of training epochs.
         train_loss (list): List of training loss values for each epoch.
         train_accuracy (list): List of training accuracy values for each epoch.
         val_accuracy (list): List of validation accuracy values for each epoch.
+        date (list): List of dates for each epoch.
         log_file_path (str): Path to the log file where metrics will be saved.
         plot_file_path (str): Path to save the plot image.
-
+        metric_name (str): Name of the metric (default is "Accuracy").
+        title (str): Title of the plot (default is "Training and Validation Metrics").
+        plot_show (bool): Whether to show the plot (default is False).
+        plot_save (bool): Whether to save the plot (default is False).
     Returns:
         None
     """
-    with open(log_file_path, "w") as log_file:
-        log_file.write("Epoch\tTrain Loss\tTrain Accuracy\tValidation Accuracy\n")
-        for epoch in range(epochs):
-            log_file.write(
-                f"{epoch+1}\t{train_loss[epoch]:.4f}\t{train_accuracy[epoch]:.4f}\t{val_accuracy[epoch]:.4f}\n"
-            )
 
-    # Create the plot
     plt.figure(figsize=(10, 6))
-    plt.plot(np.arange(1, epochs + 1), train_loss, label="Train Loss", marker="o")
-    plt.plot(
-        np.arange(1, epochs + 1), train_accuracy, label="Train Accuracy", marker="s"
-    )
-    plt.plot(
-        np.arange(1, epochs + 1), val_accuracy, label="Validation Accuracy", marker="^"
-    )
+
+    if total_batch:
+
+        num_batch_totali = epochs * total_batch
+
+        # Crea una lista di numeri di batch
+        total_elemets = list(range(1, num_batch_totali + 1))
+        # Aggiungi le barre verticali per le epoche
+        list_batch_epoch = []
+        for epoca in range(1, epochs + 2):
+            batch_inizio_epoca = (epoca - 1) * total_batch
+
+            plt.axvline(x=batch_inizio_epoca, color="red", linestyle="--", alpha=0.3)
+            list_batch_epoch.append(batch_inizio_epoca)
+
+        plt.xticks(list_batch_epoch, [f"{epoca}" for epoca in range(0, epochs + 1)])
+
+    else:
+        total_elemets = np.arange(1, epochs + 1)
+
+    plt.plot(total_elemets, train_loss, label="Train Loss", marker="o")
+
+    if val_accuracy or train_accuracy:
+        metric_label += f", {metric_name}"
+
+    metric_label = "Loss"
+    if not date:
+        date = [datetime.now() for _ in total_elemets]
+
+    if not train_accuracy:
+        train_accuracy = [0] * len(total_elemets)
+    else:
+        plt.plot(
+            np.arange(1, len(total_elemets) + 1),
+            train_accuracy,
+            label=f"Train {metric_name}",
+            marker="s",
+        )
+    if not val_accuracy:
+        val_accuracy = [0] * len(total_elemets)
+    else:
+        plt.plot(
+            np.arange(1, len(total_elemets) + 1),
+            val_accuracy,
+            label=f"Validation {metric_name}",
+            marker="^",
+        )
+
+    if log_file_path is None:
+        print("Log file not found. Log will be created by default.")
+        global_path = check_base_dir("..", "logs")
+        today = datetime.now().strftime("%m-%d_%H-%M")
+        log_file_path = os.path.join(global_path, f"metrics__{today}.csv")
+        print(f"Log file path: {log_file_path}")
+
+    with open(log_file_path, "w", newline="") as log_file:
+        log_file.write("Epoch\tTrain Loss\tTrain Accuracy\tValidation Accuracy\n")
+        for idx, elem in enumerate(total_elemets):
+            log_file.write(
+                f"{date[idx]}\t,{idx}\t,{train_loss[idx]:.4f},\t{train_accuracy[idx]:.4f},\t{val_accuracy[idx]:.4f}\n"
+            )
+    # Create the plot
+    if plot_file_path is None and plot_save:
+        print("Plot file not found. Plot will not be created.")
+        global_path = check_base_dir("..", "logs")
+        today = datetime.now().strftime("%m-%d_%H-%M")
+        plot_file_path = os.path.join(global_path, f"plot__{today}.png")
+
     plt.xlabel("Epochs")
-    plt.ylabel("Metrics")
-    plt.title("Training Metrics")
+    plt.ylabel(metric_label)
+    plt.title(title)
     plt.legend()
     plt.grid(True)
-    plt.savefig(plot_file_path)
-    if show:
+
+    if plot_save:
+        plt.savefig(plot_file_path)
+    if plot_show:
         plt.show()
 
 
@@ -472,18 +563,14 @@ if __name__ == "__main__":
 
     # Example usage:
     epochs = 10
-    train_loss = [0.5, 0.4, 0.3, 0.2, 0.15, 0.12, 0.1, 0.09, 0.08, 0.07]
+    train_loss = [0.5, 0.4, 0.3, 0.2, 0.15, 0.12, 0.1, 0.09, 0.08, 0.07] * epochs
     train_accuracy = [0.7, 0.75, 0.8, 0.85, 0.88, 0.9, 0.92, 0.93, 0.94, 0.95]
     val_accuracy = [0.65, 0.72, 0.78, 0.82, 0.85, 0.87, 0.88, 0.89, 0.9, 0.91]
-    log_file_path = "training_metrics.txt"
-    plot_file_path = "training_metrics_plot.png"
+    # e che conosci il numero totale di epoche e il numero di elementi per batch
+    elementi_per_batch = 10
 
-    log_and_plot_metrics(
-        epochs,
-        train_loss,
-        train_accuracy,
-        val_accuracy,
-        log_file_path,
-        plot_file_path,
-        show=False,
+    log_metrics(
+        epochs, train_loss, plot_show=True, elements_per_batch=elementi_per_batch
     )
+
+    # Supponiamo che tu abbia una lista 'losses' contenente le loss per ogni batch

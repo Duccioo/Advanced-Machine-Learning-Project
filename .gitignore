@@ -7,6 +7,11 @@ GraphVAE/data
 GraphVAE/dataset
 .vscode
 
+/extra/examples/data
+/script/logs
+/model_saved
+/checkpoints
+/data
 # C extensions
 *.so
 GraphVAE/examples/data

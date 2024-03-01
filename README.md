@@ -127,7 +127,7 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   - [x] aggiungere la MSE per i node features e gli edge features e controllare il numero di edge
 
-- [ ] problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features:
+- [x] problema del match tra la matrice adiacente e quella delle features degli edge: il numero di edges nella matrice adiacente è diverso da quello del edges features:
 
   - [x] aggiungere il numero di edge dal calcolo del numero massimo dei nodi
 
@@ -156,6 +156,8 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   1. Arrotondo con una soglia e mi vado a prendere solo quelli che sono diversi da 0
 
+     - oppure posso far sì che l'utente scelga il numero di atomi della molecola, creo un ciclo for che scorre una soglia e l'aumenta, quando ho 3 atomi mi fermo
+
   2. Problema di coerenza: quale edge vado a scegliere? Se un edge è presente ma la features dei nodi è zero?
 
 - [ ] Problema di efficienza: il modello sopratutto con tanti elementi nei batch rallenta molto (soprattutto usando la GPU):
@@ -169,14 +171,13 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 - quale loss utilizzare? quella del diffusion model o quella del graphVAE?
   <details>
   vi avevo detto che vi avrei specificato meglio quale funzione errore va usata per addestrare la rete che fa la diffusione inversa sullo stato latente.
-  Ho ricontrollato è si può usare un'errore quadratico (differenza fra il rumore predetto e quello effettivo). Tra l'altro questo dettaglio era già nelle slide del corso
-  e non me lo ricordavo. Per spiegarlo, vi riallego le slide,
+  Ho ricontrollato è si può usare un'errore quadratico (differenza fra il rumore predetto e quello effettivo). Tra l'altro questo dettaglio era già nelle slide del corso e non me lo ricordavo. Per spiegarlo, vi riallego le slide,
   L'algoritmo di addestramento è definito nella slide 14. Sostanzialmente è previsto che si prenda un immagine del dataset, un tempo t a caso
   e si applichi un rumore che, pixel per pixel, dipende dal valore iniziale del pixel e da un epsilon che è generato da una distribuzione normale.
   La formula da usare è quella di slide 8, dove gli alfa e i beta di t sono quelli definiti in slide 8 e slide 6.
   Come vedete in slide 6 si spiega come si calcolano i beta: sostanzialmente dipendono da un alpha e un beta inziale che ci dicono quanto è il rumore all'inizio.
   Poi i beta crescono (e di conseguenza il rumore) in maniera lineare rispetto a t. Sono stati provati altri andamenti (quadratico), ma io dire di usare quello di base lineare.
-  In pratica, voi dovete prendere un immagine e un t a caso e applicargli un rumore secondo formula a slide 8. Poi date l ímmagine rumorosa e il t va in ingresso
+  In pratica, voi dovete prendere un immagine e un t a caso e applicargli un rumore secondo formula a slide 8. Poi date l ímmagine rumorosa e il t in ingresso
   alla rete che deve restituire il rumore. Calcolate il gradiente come un problema di regressione sul rumore.
   </details>
 - magari usare rumore normalizzato
@@ -205,3 +206,45 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
   - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
   - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
   - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
+
+Buongiorno a tutti,
+
+allora siamo andati un po' avanti e volevamo aggiornarvi sullo stato del progetto e chiedervi anche qualche dubbio.
+
+- Dopo l'ultimo incontro abbiamo aggiornato il codice aggiungendo le loss per le features dei nodi e degli edges, quindi abbiamo provato un po' ad allenare la rete e ci siamo subito resi conto che è molto lenta.
+  Anche solo con un migliaio di dati e qualche epoca la rete impiega già ore per allenarsi, la loss piano piano scende quindi probabilmente qualche cosa sta apprendendo però è davvero mal ottimizzata soprattutto con tanti batch e con la GPU i tempi esplodono quindi sicuramente c'è qualcosa che non va.
+  Abbiamo cercato un po' di trovare qualche soluzione ma probabilmente il problema sta che in alcuni punti del codice c'è il passaggio tra GPU e CPU dei dati, oppure qualche punto dove non riesce a parallelizzare.
+  Il più del tempo lo passa calcolando la loss e probabilmente l'inghippo sta in un ciclo for proprio lì dentro, comunque in caso voleste dargli un occhiata vi lasciamo il codice per il calcolo della loss in allegato.
+
+- Poi, altra cosa.
+  Fino ad ora quando generiamo una molecola la rete restituisce le matrici adiacenza e delle features però queste sono di dimensione finita e nel caso volessimo calcolarci una molecola con un numero di atomi minore da quello di output della rete non sappiamo come procedere.
+  Se eliminare in modo brutale gli ultimi nodi restituiti oppure fare una soglia e selezionare solo alcuni atomi.
+  E poi, in caso scegliamo di eliminare qualche atomo ma nella matrice di adiacenza è presente l'edge in quel nodo che facciamo, scartiamo tutto?
+
+- Poi bbiamo implementato il latent diffusion model, quindi seguendo le informazioni del prof prima ci siamo salvati i modelli allenati dell'encoder e del decoder precedenti, poi passando i dati all'encoder e alla rete ci calcoliamo il rumore.
+  Volevamo sapere, poichè da principio le features dei nodi erano 11 (poi con l'encoding sono diventate 17), già nell'encoder restringiamo le features fino ad un vettore di 5 elementi, quanto la facciamo profonda la rete dentro il latent diffusion model?
+  Perchè abbiamo provato con 2/3 strati però sono talmente piccoli i layer che non sappiamo quanto andare a fondo.
+
+Infine vi lasciamo con il l'ultimo training della GraphVAE fatto con i seguenti parametri:
+
+-------- TRAINING --------
+training set: 3500
+max number node: 9
+max num edges: 36
+num nodes features 17
+num edges features 4
+latent dimension 5
+
+In allegato lasciamo anche l'andamento della loss.
+Abbiamo fatto anche un test di generazione di 8000 molecole e confrontato con altre 8000 molecole vere del dataset QM9 ha dato il 100% di Validità ma solo lo 0.25% di unicità quindi probabilmente la rete è entrata in overfitting.
+(non abbiamo calcolato la novelty perchè non sappiamo se il calcolo lo possiamo fare anche direttamente sugli smiles invece che sui grafi).
+
+-------- TEST --------
+Test set: 8000
+max num edges: 36
+max num nodes: 9
+num edges features 4
+num nodes features 17
+trying to load latest checkpoint from directory checkpoints
+Validity: 100.00%
+Uniqueness: 0.25%
