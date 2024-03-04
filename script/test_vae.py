@@ -1,28 +1,12 @@
-import argparse
 import os
-from datetime import datetime
-
-import numpy as np
-
-
 import torch
-from torch import optim
-from torch.optim.lr_scheduler import MultiStepLR
-from rdkit.Chem import Draw
-
+from tqdm import tqdm
 
 # ---
 from GraphVAE.model_graphvae import GraphVAE
 from data_graphvae import load_QM9
 
-from utils import (
-    pit,
-    load_from_checkpoint,
-    save_checkpoint,
-    log_metrics,
-    latest_checkpoint,
-    set_seed,
-)
+from utils import load_from_checkpoint, latest_checkpoint, graph_to_mol, set_seed
 
 from evaluate import calc_metrics
 
@@ -55,40 +39,66 @@ def build_model(
 
 def test(model, val_loader, latent_dimension, device):
     model.eval()
-    smile_pred = []
-    smile_true = []
-    edges_medi = 0
+    smiles_pred = []
+    smiles_true = []
+    edges_medi_pred = 0
+    edges_medi_true = 0
+    val_pbar = tqdm(
+        enumerate(val_loader),
+        total=len(val_loader),
+        colour="red",
+        desc="Batch",
+        position=0,
+        leave=True,
+    )
     with torch.no_grad():
-        for idx, data in pit(
-            enumerate(val_loader),
-            total=len(val_loader),
-            color="red",
-            desc="Batch",
-        ):
+        for idx, data in val_pbar:
             # print("-----")
+            z = torch.rand(len(data), latent_dimension).to(device)
+            (recon_adj, recon_node, recon_edge, n_one) = model.generate(z, 0.4, 0.30)
+            for idx_data, elem in enumerate(data):
+                if n_one[idx_data] == 0:
+                    mol = None
+                    smile = None
+                else:
+                    mol, smile = graph_to_mol(
+                        recon_adj[idx_data].cpu(),
+                        recon_node[idx_data],
+                        recon_edge[idx_data].cpu(),
+                        False,
+                        True,
+                    )
+                # if smile == "" or smile == None:
+                #     val_pbar.write("ERROR impossibile creare Molecola")
 
-            z = torch.rand(1, latent_dimension).to(device)
-            recon_adj, recon_node, _, smile, mol, n_one = model.generate(z, smile=True)
-            # print(recon_adj)
-            # print(torch.round(recon_node))
-            smile_pred.append(smile)
-            # print("-----")
-            # print(smile)
-            # print(idx)
-            edges_medi += n_one
-            smile_true.append(data["smiles"])
+                smiles_pred.append(smile)
+                smiles_true.append(data["smiles"][idx_data])
+
+                edges_medi_pred += n_one[idx_data]
+                edges_medi_true += data["num_edges"][idx_data]
 
     print("CALCOLO METRICHE:")
-    calc_metrics(smile_true, smile_pred)
-    print("Numero edge medi: ", edges_medi / len(smile_pred))
-    
+    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(
+        smiles_true, smiles_pred
+    )
+
+    print(smiles_true[0:15])
+    print(smiles_pred[0:15])
+
+    print(f"Validità: {validity_percentage:.2%}")
+    print(f"Unicità: {uniqueness_percentage:.2%}")
+    print(f"Novità: {novelty_percentage:.2%}")
+
+    print("Numero edge medi predetti: ", edges_medi_pred / len(smiles_pred))
+    print("Numero edge medi true: ", edges_medi_true / len(smiles_true))
 
 
 if __name__ == "__main__":
+    set_seed(42)
 
     # loading dataset
     num_examples = 10000
-    batch_size = 1
+    batch_size = 10
     num_nodes_features = 17
     num_edges_features = 4
     max_num_nodes = 9
@@ -136,7 +146,7 @@ if __name__ == "__main__":
         checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
 
     if checkpoint is not None and os.path.isfile(checkpoint):
-        steps_saved, epochs_saved, train_date_loss = load_from_checkpoint(
+        data_saved = load_from_checkpoint(
             checkpoint,
             model,
         )

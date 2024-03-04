@@ -7,42 +7,30 @@ def calc_metrics(
     smiles_true: list = ["CCO", "CCN", "CCO", "CCC"],
     smiles_predicted: list = ["CCO", "CCN", "CCC", "CCF"],
 ):
-    # Esempio di utilizzo:
-    generated_molecules = smiles_predicted
-    training_set_molecules = smiles_true
+    validity_smiles = [calculate_validity(mol) for mol in smiles_predicted]
 
-    validity_percentage = sum(
-        calculate_validity(mol) for mol in generated_molecules
-    ) / len(generated_molecules)
-    uniqueness_percentage = calculate_uniqueness(
-        generated_molecules, generated_molecules
-    )
-    novelty_percentage = calculate_novelty_2(
-        generated_molecules, training_set_molecules
-    )
+    validity_percentage = sum(validity_smiles) / len(smiles_predicted)
+    uniqueness_percentage = calculate_uniqueness(smiles_predicted, smiles_predicted)
+    novelty_percentage = calculate_novelty_2(smiles_predicted, smiles_true)
 
-    print(f"Validità: {validity_percentage:.2%}")
-    print(f"Unicità: {uniqueness_percentage:.2%}")
-    print(f"Novità: {novelty_percentage:.2%}")
+    return validity_percentage, uniqueness_percentage, novelty_percentage
 
 
-def calculate_validity(molecule):
-    try:
-        mol = Chem.MolFromSmiles(molecule)
-    except:
+def calculate_validity(smiles):
+    if smiles == "" or smiles == None:
         return False
 
-    if mol is not None:
-
-        flag = Chem.SanitizeMol(mol, catchErrors=True)
-        # Let's be strict. If sanitization fails, return None
-        if flag != Chem.SanitizeFlags.SANITIZE_NONE:
-            return False
-
-        else:
-            return True
+    m = Chem.MolFromSmiles(smiles, sanitize=False)
+    if m is None:
+        # print("Invalid SMILES: %s" % smiles)
+        return False
     else:
-        return False
+        try:
+            m = Chem.SanitizeMol(m)
+            return True
+        except:
+            # print("Invalid SMILES: %s" % smiles)
+            return False
 
 
 def calculate_uniqueness(mol_new, mol_old):

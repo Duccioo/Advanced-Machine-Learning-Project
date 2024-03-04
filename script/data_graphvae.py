@@ -14,7 +14,7 @@ import rdkit.Chem as Chem
 
 class ToTensor(BaseTransform):
     def __call__(self, data):
-        data.y = np.array(data.y)
+        data.y = data.y.clone().detach()
         data.adj = torch.tensor(data.adj)
         return data
 
@@ -312,7 +312,7 @@ def load_QM9(
     # Filtra i grafi con un numero di nodi maggiore di 10
     dataset = [data for data in dataset if data.num_nodes <= max_num_nodes]
 
-    max_num_nodes = max([dataset[i].num_nodes for i in range(len(dataset))])
+    max_num_nodes_dataset = max([dataset[i].num_nodes for i in range(len(dataset))])
 
     dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
         dataset,
@@ -354,7 +354,7 @@ def load_QM9(
         train_dataset_loader,
         test_dataset_loader,
         val_dataset_loader,
-        max_num_nodes,
+        max_num_nodes_dataset,
     )
 
 

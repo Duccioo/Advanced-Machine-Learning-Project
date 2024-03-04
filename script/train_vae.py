@@ -2,8 +2,6 @@ import argparse
 import os
 from datetime import datetime
 
-import numpy as np
-
 
 import torch
 from torch import optim
@@ -14,15 +12,15 @@ from tqdm import tqdm
 # ---
 from GraphVAE.model_graphvae import GraphVAE
 from data_graphvae import load_QM9
-
 from utils import (
-    pit,
     load_from_checkpoint,
     save_checkpoint,
     log_metrics,
     latest_checkpoint,
     set_seed,
+    graph_to_mol,
 )
+from evaluate import calc_metrics
 
 
 def build_model(
@@ -34,9 +32,6 @@ def build_model(
     latent_dimension=5,
     device=torch.device("cpu"),
 ):
-
-    # out_dim = max_num_nodes * (max_num_nodes + 1) // 2
-    # print(num_features)
 
     input_dim = len_num_features
     model = GraphVAE(
@@ -65,13 +60,15 @@ def train(
     optimizer = optim.Adam(list(model.parameters()), lr=args.lr)
     scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=args.lr)
 
-    batch_idx = 0
     epochs_saved = 0
     checkpoint = None
     steps_saved = 0
     running_steps = 0
     val_accuracy = 0
     train_date_loss = []
+    validation = []
+
+    latent_dimension = 9
 
     # Checkpoint load
     if os.path.isdir(checkpoints_dir):
@@ -79,12 +76,15 @@ def train(
         checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
 
     if checkpoint is not None and os.path.isfile(checkpoint):
-        steps_saved, epochs_saved, train_date_loss = load_from_checkpoint(
-            checkpoint, model, optimizer, scheduler
-        )
+        data_saved = load_from_checkpoint(checkpoint, model, optimizer, scheduler)
+        steps_saved = data_saved["step"]
+        epochs_saved = data_saved["epoch"]
+        train_date_loss = data_saved["loss"]
+        validation = data_saved["other"]
         print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
 
-    for epoch in range(0, epochs):
+    p_bar_epoch = tqdm(range(epochs), desc="epochs", position=0)
+    for epoch in p_bar_epoch:
         if epoch < epochs_saved:
             continue
 
@@ -92,7 +92,9 @@ def train(
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in tqdm(enumerate(train_loader), total=len(train_loader)):
+        for i, data in tqdm(
+            enumerate(train_loader), total=len(train_loader), position=1, leave=False
+        ):
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
@@ -117,15 +119,53 @@ def train(
             scheduler.step()
 
             running_loss += loss.item()
-            # Calculate validation accuracy
-
             running_steps += 1
+
             train_date_loss.append((datetime.now(), loss.item()))
 
-        print(
+        # Validation each epoch:
+        model.eval()
+        smiles_pred = []
+        smiles_true = []
+        with torch.no_grad():
+            p_bar_val = tqdm(
+                val_loader,
+                position=1,
+                leave=False,
+                total=len(val_loader),
+                colour="yellow",
+                desc="Validation",
+            )
+            for batch_val in p_bar_val:
+                # print("-----")
+                z = torch.rand(len(batch_val["smiles"]), latent_dimension).to(device)
+                (recon_adj, recon_node, recon_edge, n_one) = model.generate(
+                    z, 0.30, 0.15
+                )
+                for index_val, elem in enumerate(batch_val["smiles"]):
+                    if n_one[index_val] == 0:
+                        mol = None
+                        smile = None
+                    else:
+                        mol, smile = graph_to_mol(
+                            recon_adj[index_val].cpu(),
+                            recon_node[index_val],
+                            recon_edge[index_val].cpu(),
+                            False,
+                            True,
+                        )
+
+                    smiles_pred.append(smile)
+                    smiles_true.append(elem)
+
+            validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
+            validation.append([validity_percentage] * len(train_loader))
+            p_bar_val.write(str(validity_percentage))
+
+        p_bar_epoch.write(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
         )
-        print("Sto salvando il modello...")
+        p_bar_epoch.write("Sto salvando il modello...")
         save_checkpoint(
             checkpoints_dir,
             f"checkpoint_{epoch}",
@@ -135,17 +175,21 @@ def train(
             train_date_loss,
             optimizer,
             scheduler,
+            other=validation,
         )
 
     print("logging")
 
     train_loss = [x[1] for x in train_date_loss]
-
     date = [x[0] for x in train_date_loss]
+
+    print(validation)
+
     log_metrics(
         epochs,
         total_batch=len(train_loader),
         train_loss=train_loss,
+        val_accuracy=sum(validation, []),
         date=date,
         title="Training Loss",
         plot_save=True,
@@ -188,10 +232,10 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=15,
+        batch_size=20,
         num_workers=1,
         max_num_nodes=4,
-        num_examples=15000,
+        num_examples=1500,
         latent_dimension=9,
         epochs=3,
         # device=torch.device("cpu"),
@@ -220,28 +264,36 @@ def main():
     max_num_nodes = 9
 
     # LOAD DATASET QM9:
-    (
-        _,
-        _,
-        train_dataset_loader,
-        test_dataset_loader,
-        val_dataset_loader,
-        max_num_nodes,
-    ) = load_QM9(max_num_nodes, prog_args.num_examples, prog_args.batch_size)
+    (_, _, train_dataset_loader, _, val_dataset_loader, max_num_nodes_dataset) = (
+        load_QM9(
+            max_num_nodes,
+            prog_args.num_examples,
+            prog_args.batch_size,
+            dataset_split_list=(0.7, 0.1, 0.2),
+        )
+    )
     max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
 
     print("-------- TRAINING: --------")
 
     print(
-        "training set: {}".format(
+        "Training set: {}".format(
             len(train_dataset_loader) * train_dataset_loader.batch_size
         )
     )
+    print(
+        "Validation set : {}".format(
+            len(val_dataset_loader) * val_dataset_loader.batch_size
+        )
+    )
 
-    print("max num edges:", max_num_edges)
-    print("max num nodes:", max_num_nodes)
+    print("max num nodes setted:", max_num_nodes)
+    print("max num nodes in dataset:", max_num_nodes_dataset)
+    print("max theoretical edges:", max_num_edges)
     print("num edges features", num_edges_features)
     print("num nodes features", num_nodes_features)
+
+    # set up the model:
     model = build_model(
         max_num_nodes=max_num_nodes,
         max_num_edges=max_num_edges,
@@ -251,7 +303,7 @@ def main():
         latent_dimension=prog_args.latent_dimension,
         device=device,
     )
-
+    # training:
     train(
         prog_args,
         train_dataset_loader,
@@ -264,17 +316,13 @@ def main():
     # ---- INFERENCE ----
     # Generazione di un vettore di rumore casuale
     z = torch.randn(1, prog_args.latent_dimension).to(device)
-    z = torch.randn(1, prog_args.latent_dimension).to(device)
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():
-        adj, features_nodes, features_edges, smile, mol, _ = model.generate(
-            z, smile=True
-        )
+        adj, features_nodes, features_edges, _ = model.generate(z, 0.50, 0.50)
 
     rounded_adj_matrix = torch.round(adj)
-    # features_nodes = torch.round(features_nodes)
-    # features_edges = torch.round(features_edges)
+
     print("ORIGINAL MATRIX")
     first_molecula = next(iter(train_dataset_loader))
     print(first_molecula["adj"][0])
@@ -285,17 +333,6 @@ def main():
     print(rounded_adj_matrix)
     print(features_nodes)
     print(features_edges)
-    # smiles = data_to_smiles(features_nodes, features_edges, rounded_matrix)
-    # print(smiles)
-
-    print("MATCH DELLE MATRICI")
-    print(features_edges.shape)
-    print(count_edges(rounded_adj_matrix))
-    # model.save_vae_encoder("main")
-
-    save_filepath = os.path.join("", "mol_{}.png".format(1))
-    print(smile)
-    save_png(mol, save_filepath, size=(600, 600))
 
 
 if __name__ == "__main__":

@@ -2,11 +2,13 @@ import os
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+
 import torch
 from datetime import datetime
 import rdkit.Chem as Chem
+from rdkit import rdBase
 
-from datetime import datetime
+blocker = rdBase.BlockLogs()
 
 # ---
 _checkpoint_base_name = "checkpoint_"
@@ -67,6 +69,9 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
     mol = Chem.RWMol()
     smiles = ""
 
+    node_labels = node_labels[:, 5:9]
+    node_labels = torch.argmax(node_labels, dim=1)
+
     atomic_numbers = {0: "C", 1: "N", 2: "O", 3: "F"}
 
     # Crea un dizionario per mappare la rappresentazione one-hot encoding ai tipi di legami
@@ -77,16 +82,17 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
         3: Chem.rdchem.BondType.AROMATIC,
     }
     # print(f"Node Labels {node_labels}")
-    for node_label in node_labels:
+
+    idx = 0
+
+    for node_label in node_labels.tolist():
         # print(f"Adding atom {atomic_numbers[node_label]}")
         mol.AddAtom(Chem.Atom(atomic_numbers[node_label]))
 
-    idx = 0
-    # print("----________", np.nonzero(adj).tolist())
-    # print(edge_features)
     for edge in np.nonzero(adj).tolist():
         start, end = edge[0], edge[1]
         if start > end:
+
             bond_type_one_hot = int((edge_features[idx]).argmax())
             bond_type = bond_types[bond_type_one_hot]
             # print(f"ADDING BOUND {bond_type} to {start} and {end}")
@@ -95,40 +101,39 @@ def graph_to_mol(adj, node_labels, edge_features, sanitize, cleanup):
             try:
                 mol.AddBond(int(start), int(end), bond_type)
             except:
-                print("ERROR Impossibile aggiungere legame, Molecola incompleta")
-
+                print("ERROR Impossibile aggiungere legame")
     if sanitize:
         try:
             flag = Chem.SanitizeMol(mol, catchErrors=True)
             # Let's be strict. If sanitization fails, return None
             if flag != Chem.SanitizeFlags.SANITIZE_NONE:
-                print("Sanitize Failed")
-                # mol = None
+                mol = None
+
+                # print("Sanitize Failed")
 
         except Exception:
-            print("Sanitize Failed")
-            # mol = None
+            # print("Sanitize Failed")
+            mol = None
 
-    if cleanup:
+    if cleanup and mol is not None:
         try:
-            mol = Chem.AddHs(mol)
-            smiles = Chem.MolToSmiles(mol)
-            # print("QUESTA è una parziale SMILES", smiles)
+            mol = Chem.AddHs(mol, explicitOnly=True)
+        except:
+            pass
 
+        try:
+            smiles = Chem.MolToSmiles(mol)
             smiles = max(smiles.split("."), key=len)
             if "*" not in smiles:
                 mol = Chem.MolFromSmiles(smiles)
             else:
                 print("mol from smiles failed")
                 mol = None
-        except Exception:
-            print("error generic")
+        except:
+            # print("error generic")
             smiles = Chem.MolToSmiles(mol)
 
             mol = None
-
-    if smiles == "" or smiles == None:
-        print("ERROR impossibile creare Molecola")
 
     return mol, smiles
 
@@ -155,10 +160,12 @@ def load_from_checkpoint(checkpoint_path, model, optimizer=None, schedule=None):
 
     try:
         data.get("loss")
-        element = (data["step"], data["epoch"], data["loss"])
+
+        element = (data["step"], data["epoch"], data["loss"], data["other"])
     except:
         element = (data["step"], data["epoch"])
-    return element
+
+    return data
 
 
 def save_checkpoint(
@@ -170,6 +177,7 @@ def save_checkpoint(
     loss: list = None,
     optimizer=None,
     schedule=None,
+    other=None,
 ):
     """
     Save a checkpoint for the model's state, including step, epoch, loss, optimizer, and schedule information.
@@ -208,6 +216,12 @@ def save_checkpoint(
         state_dict.update(
             {
                 "schedule": schedule.state_dict(),
+            }
+        )
+    if other is not None:
+        state_dict.update(
+            {
+                "other": other,
             }
         )
 
@@ -272,75 +286,6 @@ def clean_old_checkpoint(folder_path, percentage):
             os.remove(file_path)
 
 
-def save_validation(
-    accuracy,
-    ssim,
-    psnr,
-    swd,
-    recall,
-    precision,
-    f1_score,
-    support,
-    step=0,
-    epoch=0,
-    loss_d=0,
-    loss_g=0,
-    filename="metrics.csv",
-):
-    now = datetime.now()
-    if loss_d != 0:
-        loss_d_s = loss_d.item()
-    else:
-        loss_d_s = loss_d
-
-    if loss_g != 0:
-        loss_g_s = loss_g.item()
-
-    else:
-        loss_g_s = loss_g
-
-    metrics = [
-        step,
-        epoch,
-        f"{loss_d_s:.4f}",
-        f"{loss_g_s:.4f}",
-        f"{ssim:.4f}",
-        f"{psnr:.4f}",
-        f"{swd:.4f}",
-        f"{accuracy:.4f}",
-        f"{precision:.4f}",
-        f"{recall:.4f}",
-        f"{f1_score:.4f}",
-        f"{support:.4f}",
-        now.strftime("%Y-%m-%d %H:%M:%S"),
-    ]
-
-    header = [
-        "Step",
-        "Epoch",
-        "Loss D",
-        "Loss G",
-        "SSIM",
-        "PSNR",
-        "SWD",
-        "Accuracy",
-        "Precision",
-        "Recall",
-        "F1_score",
-        "Support",
-        "TIME",
-    ]
-    # if os.path.exists(filename) == False:
-    #     with open(filename, "w", newline="") as f:
-    #         writer = csv.writer(f)
-    #         writer.writerow(header)
-    #         writer.writerow(metrics)
-    # else:
-    #     with open(filename, "a") as f:
-    #         writer = csv.writer(f)
-    #         writer.writerow(metrics)
-
-
 # ------------------------------------LOGGING------------------------------------
 
 
@@ -351,34 +296,20 @@ def log(
     optimizer_G,
     params,
     g_step,
-    progress_bar,
     checkpoints_dir="",
-    imgs_dir="output",
     d_loss=0,
     run_epoch=0,
     run_step=0,
     checkpoint_base_name=_checkpoint_base_name,
     accuracy=0,
-    device="cpu",
 ):
     if run_step % params.steps_per_img_save == 0 and run_step > 0:
-        # ogni tot mi salvo anche un immagine
-        # img_path = save_gen_img(
-        #     model=model,
-        #     noise=generate_noise(3, 100, 3, seed=1599, device=device),
-        #     path=imgs_dir,
-        #     title=(
-        #         f"gen_s{str(run_step)}_e{(run_epoch)}_gl{(g_loss.item()):.2f}_dl{(d_loss.item()):.2f}.jpg"
-        #     ),
-        # )
-        img_path = ""
 
         # controllo se il parametro di telegram è stato impostato
         if params.telegram == True:
             # se è attivo invio un messaggio dal bot
             telegram_alert.alert(
                 "TRAINING",
-                img_path,
                 run_step,
                 params.steps,
                 f"Loss: <b>{(d_loss.item()):.2f}</b>\nEpoca: <b>{(run_epoch)}</b>\tSTEP: <b>{(run_step)}</b>",
@@ -456,7 +387,8 @@ def log_metrics(
         None
     """
 
-    plt.figure(figsize=(10, 6))
+    # plt.figure(figsize=(10, 6))
+    plt.figure()
 
     if total_batch:
 
@@ -479,10 +411,10 @@ def log_metrics(
 
     plt.plot(total_elemets, train_loss, label="Train Loss", marker="o")
 
+    metric_label = "Loss"
     if val_accuracy or train_accuracy:
         metric_label += f", {metric_name}"
 
-    metric_label = "Loss"
     if not date:
         date = [datetime.now() for _ in total_elemets]
 
@@ -499,7 +431,7 @@ def log_metrics(
         val_accuracy = [0] * len(total_elemets)
     else:
         plt.plot(
-            np.arange(1, len(total_elemets) + 1),
+            total_elemets,
             val_accuracy,
             label=f"Validation {metric_name}",
             marker="^",
@@ -537,34 +469,6 @@ def log_metrics(
         plt.show()
 
 
-def pit(it, *pargs, **nargs):
-    import enlighten
-
-    global __pit_man__
-    try:
-        __pit_man__
-    except NameError:
-        __pit_man__ = enlighten.get_manager()
-    man = __pit_man__
-    try:
-        it_len = len(it)
-    except:
-        it_len = None
-    try:
-        ctr = None
-        for i, e in enumerate(it):
-            if i == 0:
-                ctr = man.counter(
-                    *pargs, **{**dict(leave=False, total=it_len), **nargs}
-                )
-            yield e
-            ctr.update()
-    finally:
-        if ctr is not None:
-            ctr.close()
-            # pass
-
-
 if __name__ == "__main__":
 
     # Example usage:
@@ -578,5 +482,3 @@ if __name__ == "__main__":
     log_metrics(
         epochs, train_loss, plot_show=True, elements_per_batch=elementi_per_batch
     )
-
-    # Supponiamo che tu abbia una lista 'losses' contenente le loss per ogni batch

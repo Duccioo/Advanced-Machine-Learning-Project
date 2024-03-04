@@ -1,5 +1,4 @@
 import os
-import numpy as np
 
 
 import torch.nn.functional as F
@@ -11,6 +10,7 @@ from torch.optim import Adam
 from LatentDiffusion.model_latent import SimpleUnet
 from LatentDiffusion.model_VAE import MLP_VAE_plain_ENCODER, MLP_VAE_plain_DECODER
 from data_graphvae import load_QM9
+from utils import set_seed
 
 
 def linear_beta_schedule(timesteps, start=0.0001, end=0.02):
@@ -87,8 +87,6 @@ def sample_timestep(x, t, model):
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
 
     if t == 0:
-        # As pointed out by Luis Pereira (see YouTube comment)
-        # The t's are offset from the t's in the paper
         return model_mean
     else:
         noise = torch.randn_like(x)
@@ -97,9 +95,7 @@ def sample_timestep(x, t, model):
 
 if __name__ == "__main__":
 
-    np.random.seed(42)
-    torch.manual_seed(42)
-
+    set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     input_dimension = 6
@@ -129,6 +125,7 @@ if __name__ == "__main__":
         num_edges_features=num_edges_features,
         device=device,
     )
+    
     # TODO:
     # 1. LOAD CHECKPOINT FOR ENCODER AND DECODER
     # ...

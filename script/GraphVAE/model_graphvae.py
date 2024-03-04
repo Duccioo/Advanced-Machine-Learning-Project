@@ -14,7 +14,6 @@ import sys
 from os import path
 
 a = sys.path.append((path.dirname(path.dirname(path.abspath(__file__)))))
-from utils.utils import graph_to_mol
 
 
 def hungarian_algorithm(costs):
@@ -161,15 +160,29 @@ class GraphVAE(nn.Module):
 
         self.pool = pool
 
-    def recover_adj_lower(self, l, device=torch.device("cuda")):
-        # NOTE: Assumes 1 per minibatch
-        adj = torch.zeros(self.max_num_nodes, self.max_num_nodes, device=device)
-        adj[torch.triu(torch.ones(self.max_num_nodes, self.max_num_nodes)) == 1] = l
+    def recover_adj_lower(self, vector):
+        rows, _ = vector.size()
+
+        # Creare una matrice con gli zeri
+        adj = torch.zeros(
+            rows, self.max_num_nodes, self.max_num_nodes, device=self.device
+        )
+
+        adj[
+            torch.triu(torch.ones(rows, self.max_num_nodes, self.max_num_nodes)) == 1
+        ] = vector.view(1, -1)
+
         return adj
 
     def recover_full_adj_from_lower(self, lower):
-        diag = torch.diag(torch.diag(lower, 0))
-        return lower + torch.transpose(lower, 0, 1) - diag
+        # diag = torch.diag(torch.diag(lower, 0))
+        # return lower + torch.transpose(lower, 0, 1) - diag
+        batch_matrici_diagonali = (
+            lower
+            + lower.transpose(-2, -1)
+            - torch.diag_embed(lower.diagonal(dim1=-2, dim2=-1))
+        )
+        return batch_matrici_diagonali
 
     def permute_adj(self, adj, curr_ind, target_ind):
         """Permute adjacency matrix.
@@ -235,7 +248,7 @@ class GraphVAE(nn.Module):
                             S[i, j, a, b] = torch.abs(adj[i, j] - adj_recon[a, b])
         return S
 
-    def mpm(self, x_init, S, max_iters=50):
+    def mpm(self, x_init, S, max_iters=10):
         x = x_init
         for it in range(max_iters):
             x_new = torch.zeros(
@@ -309,10 +322,11 @@ class GraphVAE(nn.Module):
         init_corr = 1 / self.max_num_nodes
 
         adj_permuted_vectorized = adj_recon_vector.clone().to(self.device)
+        recon_adj_lower = self.recover_adj_lower(adj_recon_vector)
+        recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
         # LENTISSIMOO...
         for i in range(adj_recon_vector.shape[0]):
-            recon_adj_lower = self.recover_adj_lower(adj_recon_vector[i], self.device)
 
             adj_wout_diagonal = adj_true[i][
                 upper_triangular_indices[0], upper_triangular_indices[1]
@@ -323,11 +337,9 @@ class GraphVAE(nn.Module):
                 -1, edges_recon.shape[2]
             )
 
-            recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
-
             S = self.edge_similarity_matrix(
                 adj_true[i],
-                recon_adj_tensor,
+                recon_adj_tensor[i],
                 edges_true[i],
                 edges_recon[i],
                 self.deg_feature_similarity,
@@ -339,11 +351,11 @@ class GraphVAE(nn.Module):
             )
             assignment = self.mpm(init_assignment, S)
 
-            # row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-            #     -assignment.detach().cpu().numpy()
-            # )
+            row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                -assignment.detach().cpu().numpy()
+            )
             # Algoritmo ungherese implementato in torch per velocizzare le operazioni e fare tutto su gpu
-            row_ind, col_ind = hungarian_algorithm(assignment)
+            # row_ind, col_ind = hungarian_algorithm(assignment)
 
             adj_permuted = self.permute_adj(adj_true[i], row_ind, col_ind)
             adj_permuted_vectorized[i] = adj_permuted[
@@ -364,103 +376,59 @@ class GraphVAE(nn.Module):
 
         return loss
 
-    def generate(self, z, smile: bool = False):
-        mol = None
-        smiles = ""
+    def generate(self, z, treshold_adj=0.50, treshold_diag=0.50):
+
         with torch.no_grad():
-            # z = z.clone().detach().to(dtype=torch.float32).to(device=device)
             h_decode, output_node_features, output_edge_features = self.vae.decoder(z)
 
             output_node_features = output_node_features.view(
                 -1, self.input_dimension, self.num_nodes_features
             )
+
             output_edge_features = output_edge_features.view(
                 -1, self.max_num_edges, self.num_edges_features
             )
+
             output_edge_features = F.softmax(output_edge_features, dim=2)
             out = torch.sigmoid(h_decode)
 
-            recon_adj_lower = self.recover_adj_lower(out, device=self.device)
+            recon_adj_lower = self.recover_adj_lower(out)
             recon_adj_tensor = self.recover_full_adj_from_lower(recon_adj_lower)
 
-            # selezioni solo gli atomi dove la diagonale dell'adicenza è sopra una certa soglia:
-            # print("MATRICE ADIACENZA 1")
-            # print(recon_adj_tensor)
-            # recon_adj_tensor_rounded = torch.round(recon_adj_tensor + (0.5 - 0.30))
-            treshold_adj = 0.30
-            treshold_diag = 0.10
-            # Selezione delle righe e colonne con valore diagonale sopra 0.35
-            recon_adj_tensor = recon_adj_tensor[
-                recon_adj_tensor.diagonal() > treshold_diag, :
-            ][:, recon_adj_tensor.diagonal() > treshold_diag]
-            # print("MATRICE ADIACENZA 2")
-            # print(recon_adj_tensor)
-            indici_righe_selezionate = torch.where(
-                torch.diagonal(recon_adj_tensor) > treshold_diag
-            )[0]
-            # print(indici_righe_selezionate)
+            # Trova gli indici delle righe e delle colonne con valori diagonali superiori a 0.35
+            diagonal_values = torch.diagonal(recon_adj_tensor, dim1=-2, dim2=-1)
+            indices_bool = diagonal_values > treshold_diag
 
-            recon_adj_tensor.fill_diagonal_(0)
+            # Crea la maschera booleana per selezionare le righe e le colonne
+            mask = indices_bool.unsqueeze(1) & indices_bool.unsqueeze(2)
 
-            # recon_adj_norm = (recon_adj_tensor - torch.min(recon_adj_tensor)) / (
-            #     torch.max(recon_adj_tensor) - torch.min(recon_adj_tensor)
-            # )
-            recon_adj_tensor_rounded = torch.round(
-                recon_adj_tensor + (0.5 - treshold_adj)
-            )
-            # recon_adj_tensor_rounded =torch.nn.Threshold(0.35, 0)(recon_adj_tensor)
+            # Seleziona le righe e le colonne
+            selected_matrices = recon_adj_tensor * mask
+
+            # Ottenere le dimensioni del tensore
+            _, matrix_size, _ = selected_matrices.size()
+
+            # Creare una maschera identità per le diagonali
+            diagonal_mask = torch.eye(matrix_size, device=self.device).bool()
+
+            # Moltiplicare ogni matrice per la maschera identità invertita
+            result_tensor = selected_matrices * (~diagonal_mask).unsqueeze(0)
+
+            
+            recon_adj_tensor_rounded = torch.round(result_tensor + (0.5 - treshold_adj))
+            # print("00000000000000")
+            
             # print(recon_adj_tensor_rounded)
+            
+            n_one = torch.sum(recon_adj_tensor_rounded, dim=(1, 2)) // 2
 
-            n_one = (recon_adj_tensor_rounded == 1).sum().item() // 2
-
-            if n_one == 0 and recon_adj_tensor_rounded.shape[0] == 0:
-                mol = None
-                smiles = ""
-            else:
-                output_edge_features = output_edge_features[:, :n_one]
-
-                # sotto_matrice = torch.round(
-                #     F.softmax(output_node_features[:, :, 5:9], dim=2)
-                # )
-
-                output_node_features = output_node_features[
-                    :, indici_righe_selezionate.tolist()
-                ]
-                # print(output_node_features)
-
-                sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
-                output_node_features[:, :, 5:9] = sotto_matrice.squeeze_()
-
-                # print("OUTPUT NODE FEATURES:")
-                # print(output_node_features)
-
-                # print("SOTTO MATRICE:")
-                # print(sotto_matrice)
-                try:
-                    indici = torch.argmax(sotto_matrice, dim=1)
-                except:
-                    indici = torch.argmax(sotto_matrice, dim=0)
-                # print(indici)
-                # exit()
-                indici = indici.tolist()
-                # print(indici)
-                if not isinstance(indici, list):
-                    indici = [indici]
-                if smile:
-                    mol, smiles = graph_to_mol(
-                        recon_adj_tensor_rounded.cpu(),
-                        indici,
-                        output_edge_features[0].cpu(),
-                        True,
-                        True,
-                    )
+            sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
+            output_node_features[:, :, 5:9] = sotto_matrice.squeeze_()
 
             return (
                 recon_adj_tensor_rounded,
                 output_node_features,
                 output_edge_features,
-                smiles,
-                mol,
                 n_one,
             )
 
