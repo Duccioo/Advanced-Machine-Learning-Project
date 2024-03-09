@@ -2,6 +2,8 @@ import os
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+import hashlib
+
 
 import torch
 from datetime import datetime
@@ -12,6 +14,25 @@ blocker = rdBase.BlockLogs()
 
 # ---
 _checkpoint_base_name = "checkpoint_"
+
+
+def generate_unique_id(params: list = [], lenght: int = 10) -> str:
+    input_str = ""
+
+    # Concateniamo le stringhe dei dati di input
+    for param in params:
+        if type(param) is list:
+            param_1 = [str(p) if not callable(p) else p.__name__ for p in param]
+        else:
+            param_1 = str(param)
+        input_str += str(param_1)
+
+    # Calcoliamo il valore hash SHA-256 della stringa dei dati di input
+    hash_obj = hashlib.sha256(input_str.encode())
+    hex_dig = hash_obj.hexdigest()
+
+    # Restituiamo i primi 8 caratteri del valore hash come ID univoco
+    return hex_dig[:lenght]
 
 
 def set_seed(seed: int = 42) -> None:

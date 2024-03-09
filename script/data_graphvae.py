@@ -322,8 +322,9 @@ def load_QM9(
     # split dataset
     train_size = int(dataset_split_list[0] * len(dataset))
     test_size = int(dataset_split_list[1] * len(dataset))
-    val_size = int(dataset_split_list[2] * len(dataset))
-    # val_size = len(dataset) - train_size - test_size
+    # val_size = int(dataset_split_list[2] * len(dataset))
+    val_size = len(dataset) - train_size - test_size
+    # print(val_size, train_size, test_size)
 
     train_dataset, val_dataset, test_dataset = random_split(
         dataset_padded, [train_size, val_size, test_size]

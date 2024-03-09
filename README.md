@@ -211,3 +211,31 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
   - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
   - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
   - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
+
+## To do:
+
+- fare un file separato per il salvataggio del encoder e del decoder tramite una versione finale del modello:
+
+- unire la parte del graphvae del diffusion con quella del GraphVAE
+- (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
+
+# esperimenti:
+
+- 100 esempi (Tommaso)
+- 1000 esempi (Tommaso)
+- 5000 esempi (Duccio)
+- 10000 esempi (Duccio)
+
+- GraphVAE:
+  - 8 epoche per ogni esperimento
+
+- per ogni esperimento:
+  - salvare encoder e decoder
+
+  - fare il training del Difussion Model:
+    - 50 epoche, magari fare qualche prova per vedere come si comporta
+  
+  - TEST:
+    - test VAE
+    - test Diffusion
+    - provare diverse soglie per ogni test

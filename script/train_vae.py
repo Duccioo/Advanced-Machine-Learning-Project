@@ -1,7 +1,7 @@
 import argparse
 import os
 from datetime import datetime
-
+import json
 
 import torch
 from torch import optim
@@ -19,6 +19,7 @@ from utils import (
     latest_checkpoint,
     set_seed,
     graph_to_mol,
+    generate_unique_id,
 )
 from evaluate import calc_metrics
 
@@ -55,8 +56,8 @@ def train(
     checkpoints_dir="checkpoints",
     device=torch.device("cpu"),
 ):
+    # LR_milestones = [int(epochs * 0.3), int(epochs * 0.6)]
     LR_milestones = [500, 1000]
-
     optimizer = optim.Adam(list(model.parameters()), lr=args.lr)
     scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=args.lr)
 
@@ -139,9 +140,7 @@ def train(
             for batch_val in p_bar_val:
                 # print("-----")
                 z = torch.rand(len(batch_val["smiles"]), latent_dimension).to(device)
-                (recon_adj, recon_node, recon_edge, n_one) = model.generate(
-                    z, 0.30, 0.15
-                )
+                (recon_adj, recon_node, recon_edge, n_one) = model.generate(z, 0.5, 0.4)
                 for index_val, elem in enumerate(batch_val["smiles"]):
                     if n_one[index_val] == 0:
                         mol = None
@@ -168,7 +167,7 @@ def train(
         p_bar_epoch.write("Sto salvando il modello...")
         save_checkpoint(
             checkpoints_dir,
-            f"checkpoint_{epoch}",
+            f"checkpoint_{epoch+1}",
             model,
             running_steps,
             epoch + 1,
@@ -182,8 +181,6 @@ def train(
 
     train_loss = [x[1] for x in train_date_loss]
     date = [x[0] for x in train_date_loss]
-
-    print(validation)
 
     log_metrics(
         epochs,
@@ -232,12 +229,12 @@ def arg_parse():
 
     parser.set_defaults(
         lr=0.001,
-        batch_size=20,
+        batch_size=1,
         num_workers=1,
         max_num_nodes=4,
-        num_examples=1500,
+        num_examples=15,
         latent_dimension=9,
-        epochs=3,
+        epochs=5,
         # device=torch.device("cpu"),
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
@@ -256,12 +253,12 @@ def main():
 
     device = prog_args.device
 
-    filter_apriori_max_num_nodes = -1
-
     # loading dataset
     num_nodes_features = 17
     num_edges_features = 4
     max_num_nodes = 9
+
+    hyper_params = []
 
     # LOAD DATASET QM9:
     (_, _, train_dataset_loader, _, val_dataset_loader, max_num_nodes_dataset) = (
@@ -312,6 +309,31 @@ def main():
         epochs=prog_args.epochs,
         device=device,
     )
+
+    hyper_params.append(
+        {
+            "num_nodes_features": num_nodes_features,
+            "num_edges_features": num_edges_features,
+            "max_num_nodes": max_num_nodes,
+            "max_num_edges": max_num_edges,
+            "latent_dimension": prog_args.latent_dimension,
+            "num_examples": prog_args.num_examples,
+            "batch_size": prog_args.batch_size,
+        }
+    )
+
+    model_code = generate_unique_id(list(hyper_params[0].values()), 5)
+
+    # salvo gli iperparametri:
+    json_path = f"hyperparams_{model_code}.json"
+
+    # Caricamento dei dati dal file JSON
+    with open(json_path, "w") as file:
+        json.dump(hyper_params, file)
+
+    # salvo il modello finale:
+    model_path = f"final_model_{model_code}.pth"
+    torch.save(model.state_dict(), model_path)
 
     # ---- INFERENCE ----
     # Generazione di un vettore di rumore casuale

@@ -414,12 +414,11 @@ class GraphVAE(nn.Module):
             # Moltiplicare ogni matrice per la maschera identità invertita
             result_tensor = selected_matrices * (~diagonal_mask).unsqueeze(0)
 
-            
             recon_adj_tensor_rounded = torch.round(result_tensor + (0.5 - treshold_adj))
             # print("00000000000000")
-            
+
             # print(recon_adj_tensor_rounded)
-            
+
             n_one = torch.sum(recon_adj_tensor_rounded, dim=(1, 2)) // 2
 
             sotto_matrice = F.softmax(output_node_features[:, :, 5:9], dim=2)
@@ -434,3 +433,12 @@ class GraphVAE(nn.Module):
 
     def save_vae_encoder(self, path):
         self.vae.save_encoder(path)
+
+    def save_vae_decoder(self, path):
+        self.vae.save_decoder(path)
+
+    def load_vae_encoder(self, path):
+        self.vae.load_encoder(path)
+
+    def load_vae_decoder(self, path):
+        self.vae.load_decoder(path)

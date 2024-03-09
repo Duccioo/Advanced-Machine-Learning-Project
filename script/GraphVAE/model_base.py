@@ -437,14 +437,10 @@ class MLP_VAE_plain_ENCODER(nn.Module):
         return z, z_mu, z_lsgms
 
 
-# a deterministic linear output (update: add noise)
-class MLP_VAE_plain(nn.Module):
-    def __init__(self, h_size, embedding_size, y_size, e_size, device):
-        super(MLP_VAE_plain, self).__init__()
+class MLP_VAE_plain_DECODER(nn.Module):
 
-        self.device = device
-        self.encoder = MLP_VAE_plain_ENCODER(h_size, embedding_size, device)
-
+    def __init__(self, h_size, embedding_size, y_size, e_size):
+        super(MLP_VAE_plain_DECODER, self).__init__()
         self.decode_1 = nn.Linear(embedding_size, embedding_size)
         self.decode_2 = nn.Linear(embedding_size, y_size)
 
@@ -455,6 +451,35 @@ class MLP_VAE_plain(nn.Module):
 
         self.decode_edges_1_features = nn.Linear(embedding_size, embedding_size)
         self.decode_edges_2_features = nn.Linear(embedding_size, e_size)
+
+    def forward(self, z):
+        # decoder
+        y = self.decode_1(z)
+        y = self.relu(y)
+        y = self.decode_2(y)
+
+        # decoder for node features
+        n_features = self.decode_1_features(z)
+        n_features = self.relu(n_features)
+        n_features = self.decode_2_features(n_features)
+
+        # decoder for edges features
+        e_features = self.decode_edges_1_features(z)
+        e_features = self.relu(e_features)
+        e_features = self.decode_edges_2_features(e_features)
+
+        return y, n_features, e_features
+
+
+# a deterministic linear output (update: add noise)
+class MLP_VAE_plain(nn.Module):
+    def __init__(self, h_size, embedding_size, y_size, e_size, device):
+        super(MLP_VAE_plain, self).__init__()
+
+        self.device = device
+        self.encoder = MLP_VAE_plain_ENCODER(h_size, embedding_size, device)
+
+        self.decoder = MLP_VAE_plain_DECODER(h_size, embedding_size, y_size, e_size)
 
         for m in self.modules():
             if isinstance(m, nn.Linear):
@@ -475,23 +500,16 @@ class MLP_VAE_plain(nn.Module):
             self.encoder.state_dict(), os.path.join(path_to_save_model, "encoder.pth")
         )
 
-    def decoder(self, z):
-        # decoder
-        y = self.decode_1(z)
-        y = self.relu(y)
-        y = self.decode_2(y)
+    def save_decoder(self, path_to_save_model):
+        torch.save(
+            self.decoder.state_dict(), os.path.join(path_to_save_model, "decoder.pth")
+        )
 
-        # decoder for node features
-        n_features = self.decode_1_features(z)
-        n_features = self.relu(n_features)
-        n_features = self.decode_2_features(n_features)
+    def load_encoder(self, file):
+        self.encoder.load_state_dict(torch.load(file))
 
-        # decoder for edges features
-        e_features = self.decode_edges_1_features(z)
-        e_features = self.relu(e_features)
-        e_features = self.decode_edges_2_features(e_features)
-
-        return y, n_features, e_features
+    def load_decoder(self, file):
+        self.decoder.load_state_dict(torch.load(file))
 
 
 # a deterministic linear output (update: add noise)

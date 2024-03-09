@@ -8,9 +8,12 @@ from torch.optim import Adam
 
 # ---
 from LatentDiffusion.model_latent import SimpleUnet
-from LatentDiffusion.model_VAE import MLP_VAE_plain_ENCODER, MLP_VAE_plain_DECODER
+from GraphVAE.model_base import MLP_VAE_plain_ENCODER
+from GraphVAE.model_graphvae import GraphVAE
+
+# from LatentDiffusion.model_VAE import MLP_VAE_plain_ENCODER, MLP_VAE_plain_DECODER
 from data_graphvae import load_QM9
-from utils import set_seed
+from utils import set_seed, graph_to_mol
 
 
 def linear_beta_schedule(timesteps, start=0.0001, end=0.02):
@@ -98,17 +101,17 @@ if __name__ == "__main__":
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    input_dimension = 6
+    input_dimension = 9
     num_nodes_features = 17
     num_edges_features = 4
-    latent_dim = 5
-    max_num_nodes = 6
+    latent_dim = 9
+    max_num_nodes = 9
     max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
-    BATCH_SIZE = 5
+    BATCH_SIZE = 1
     NUM_EXAMPLES = 1000
-    epochs = 20  # Try more!
+    epochs = 5  # Try more!
     learning_rate = 0.01
-    file_encoder = os.path.join("model_saved", "encoder.pth")
+    file_encoder = "encoder.pth"
     file_decoder = "decoder.pth"
 
     encoder = MLP_VAE_plain_ENCODER(
@@ -116,7 +119,7 @@ if __name__ == "__main__":
         latent_dim,
         device=device,
     )
-    decoder = MLP_VAE_plain_DECODER(
+    decoder = GraphVAE(
         input_dim=input_dimension,
         latent_dim=latent_dim,
         max_num_nodes=max_num_nodes,
@@ -125,12 +128,14 @@ if __name__ == "__main__":
         num_edges_features=num_edges_features,
         device=device,
     )
-    
+
     # TODO:
     # 1. LOAD CHECKPOINT FOR ENCODER AND DECODER
     # ...
-    encoder.load(file_encoder)
-    # decoder.load(file_decoder)
+    encoder.load_state_dict(torch.load(file_encoder))
+
+    decoder.load_vae_decoder(file_decoder)
+    decoder.load_vae_encoder(file_encoder)
 
     encoder.to(device)
     decoder.to(device)
@@ -146,9 +151,14 @@ if __name__ == "__main__":
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     # LOAD DATASET QM9:
-    _, _, train_dataset_loader, val_dataset_loader, max_num_nodes = load_QM9(
-        max_num_nodes, NUM_EXAMPLES, BATCH_SIZE
-    )
+    (
+        _,
+        _,
+        train_dataset_loader,
+        test_dataset_loader,
+        val_dataset_loader,
+        max_num_nodes,
+    ) = load_QM9(max_num_nodes, NUM_EXAMPLES, BATCH_SIZE)
 
     # -- TRAINING -- :
     print("\nStart training...")
@@ -183,5 +193,12 @@ if __name__ == "__main__":
         z = torch.randn(1, latent_dim).to(device)
         z = sample_timestep(z, torch.tensor([0], device=device), model).to(device)
 
-        _, _, _, smile, recon_mol = decoder(z, smile=True)
+        (recon_adj, recon_node, recon_edge, n_one) = decoder.generate(z, 0.4, 0.3)
+        mol, smile = graph_to_mol(
+            recon_adj[0].cpu(),
+            recon_node[0],
+            recon_edge[0].cpu(),
+            False,
+            True,
+        )
         print(smile)
