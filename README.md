@@ -214,9 +214,6 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## To do:
 
-- fare un file separato per il salvataggio del encoder e del decoder tramite una versione finale del modello:
-
-- unire la parte del graphvae del diffusion con quella del GraphVAE
 - (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
 
 # esperimenti:

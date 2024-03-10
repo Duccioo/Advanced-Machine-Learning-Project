@@ -245,6 +245,8 @@ if __name__ == "__main__":
     print("Numero edge medi predetti: ", edges_pred)
     print("Numero edge medi true: ", edges_true)
     header = [
+        "Treshold ADJ",
+        "Treshold DIAG",
         "Validity %",
         "Uniqueness %",
         "Novelty %",
@@ -252,7 +254,15 @@ if __name__ == "__main__":
         "Edges Medi true",
         "Data",
     ]
-    results = [validity * 100, uniqueness * 100, novelty * 100, edges_pred, edges_true]
+    results = [
+        args_parsed.treshold_adj,
+        args_parsed.treshold_diag,
+        validity * 100,
+        uniqueness * 100,
+        novelty * 100,
+        edges_pred,
+        edges_true,
+    ]
     nome_file = "result_vae.csv"
 
     write_csv(nome_file, header, results)
