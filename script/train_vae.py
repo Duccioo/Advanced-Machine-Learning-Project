@@ -1,17 +1,16 @@
 import argparse
 import os
 from datetime import datetime
-import json
+import random
 
 import torch
 from torch import optim
 from torch.optim.lr_scheduler import MultiStepLR
-from rdkit.Chem import Draw
 from tqdm import tqdm
 
 # ---
 from GraphVAE.model_graphvae import GraphVAE
-from data_graphvae import load_QM9
+from utils.data_graphvae import load_QM9
 from utils import (
     load_from_checkpoint,
     save_checkpoint,
@@ -19,47 +18,60 @@ from utils import (
     latest_checkpoint,
     set_seed,
     graph_to_mol,
-    generate_unique_id,
+    Summary,
 )
 from evaluate import calc_metrics
 
 
-def build_model(
-    max_num_nodes: int = 0,
-    max_num_edges: int = 0,
-    num_nodes_features: int = 15,
-    num_edges_features: int = 4,
-    len_num_features: int = 8,
-    latent_dimension=5,
-    device=torch.device("cpu"),
-):
+def validation(model: GraphVAE, val_loader, device, treshold_adj: float = 0.5, treshold_diag: float = 0.5):
+    model.eval()
+    smiles_pred = []
+    smiles_true = []
+    with torch.no_grad():
+        p_bar_val = tqdm(
+            val_loader, position=1, leave=False, total=len(val_loader), colour="yellow", desc="Validation"
+        )
+        for batch_val in p_bar_val:
+            z = torch.rand(len(batch_val["smiles"]), model.embedding_size).to(device)
+            (recon_adj, recon_node, recon_edge, n_one) = model.generate(z, treshold_adj, treshold_diag)
+            for index_val, elem in enumerate(batch_val["smiles"]):
+                if n_one[index_val] == 0:
+                    mol = None
+                    smile = None
+                else:
+                    mol, smile = graph_to_mol(
+                        recon_adj[index_val].cpu(),
+                        recon_node[index_val],
+                        recon_edge[index_val].cpu(),
+                        False,
+                        True,
+                    )
 
-    input_dim = len_num_features
-    model = GraphVAE(
-        input_dim,
-        latent_dimension,
-        max_num_nodes=max_num_nodes,
-        max_num_edges=max_num_edges,
-        num_nodes_features=num_nodes_features,
-        num_edges_features=num_edges_features,
-        device=device,
-    ).to(device)
-    return model
+                smiles_pred.append(smile)
+                smiles_true.append(elem)
+
+        validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
+        return validity_percentage
 
 
 def train(
-    args,
+    learning_rate,
     train_loader,
     val_loader,
     model,
     epochs=50,
     checkpoints_dir="checkpoints",
+    logs_dir="logs",
     device=torch.device("cpu"),
 ):
     # LR_milestones = [int(epochs * 0.3), int(epochs * 0.6)]
     LR_milestones = [500, 1000]
-    optimizer = optim.Adam(list(model.parameters()), lr=args.lr)
-    scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=args.lr)
+
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = MultiStepLR(optimizer, milestones=LR_milestones, gamma=learning_rate)
+
+    logs_dir_csv = os.path.join(logs_dir, "metric_training.csv")
+    logs_dir_plot = os.path.join(logs_dir, "plot_training.png")
 
     epochs_saved = 0
     checkpoint = None
@@ -67,9 +79,7 @@ def train(
     running_steps = 0
     val_accuracy = 0
     train_date_loss = []
-    validation = []
-
-    latent_dimension = 9
+    validation_saved = []
 
     # Checkpoint load
     if os.path.isdir(checkpoints_dir):
@@ -81,7 +91,7 @@ def train(
         steps_saved = data_saved["step"]
         epochs_saved = data_saved["epoch"]
         train_date_loss = data_saved["loss"]
-        validation = data_saved["other"]
+        validation_saved = data_saved["other"]
         print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
 
     p_bar_epoch = tqdm(range(epochs), desc="epochs", position=0)
@@ -93,9 +103,7 @@ def train(
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in tqdm(
-            enumerate(train_loader), total=len(train_loader), position=1, leave=False
-        ):
+        for i, data in tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=False):
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
@@ -105,14 +113,7 @@ def train(
             adj_vec, mu, var, node_recon, edge_recon = model(features_nodes)
 
             loss = model.loss(
-                adj_input,
-                adj_vec,
-                features_nodes,
-                node_recon,
-                features_edges,
-                edge_recon,
-                mu,
-                var,
+                adj_input, adj_vec, features_nodes, node_recon, features_edges, edge_recon, mu, var
             )
 
             loss.backward()
@@ -125,46 +126,14 @@ def train(
             train_date_loss.append((datetime.now(), loss.item()))
 
         # Validation each epoch:
-        model.eval()
-        smiles_pred = []
-        smiles_true = []
-        with torch.no_grad():
-            p_bar_val = tqdm(
-                val_loader,
-                position=1,
-                leave=False,
-                total=len(val_loader),
-                colour="yellow",
-                desc="Validation",
-            )
-            for batch_val in p_bar_val:
-                # print("-----")
-                z = torch.rand(len(batch_val["smiles"]), latent_dimension).to(device)
-                (recon_adj, recon_node, recon_edge, n_one) = model.generate(z, 0.5, 0.4)
-                for index_val, elem in enumerate(batch_val["smiles"]):
-                    if n_one[index_val] == 0:
-                        mol = None
-                        smile = None
-                    else:
-                        mol, smile = graph_to_mol(
-                            recon_adj[index_val].cpu(),
-                            recon_node[index_val],
-                            recon_edge[index_val].cpu(),
-                            False,
-                            True,
-                        )
-
-                    smiles_pred.append(smile)
-                    smiles_true.append(elem)
-
-            validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
-            validation.append([validity_percentage] * len(train_loader))
-            p_bar_val.write(str(validity_percentage))
+        validity_percentage = validation(model, val_loader, device, 0.3, 0.2)
+        validation_saved.append([validity_percentage] * len(train_loader))
+        print(str(validity_percentage))
 
         p_bar_epoch.write(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
         )
-        p_bar_epoch.write("Sto salvando il modello...")
+        p_bar_epoch.write("Saving checkpoint...")
         save_checkpoint(
             checkpoints_dir,
             f"checkpoint_{epoch+1}",
@@ -174,29 +143,30 @@ def train(
             train_date_loss,
             optimizer,
             scheduler,
-            other=validation,
+            other=validation_saved,
         )
 
     print("logging")
 
     train_loss = [x[1] for x in train_date_loss]
-    date = [x[0] for x in train_date_loss]
+    train_date = [x[0] for x in train_date_loss]
+    validation_accuracy = sum(validation_saved, [])
 
     log_metrics(
         epochs,
         total_batch=len(train_loader),
         train_loss=train_loss,
-        val_accuracy=sum(validation, []),
-        date=date,
+        val_accuracy=validation_accuracy,
+        date=train_date,
         title="Training Loss",
         plot_save=True,
+        plot_file_path=logs_dir_plot,
+        log_file_path=logs_dir_csv,
     )
 
 
 def count_edges(adj_matrix):
-    num_edges = (
-        torch.sum(adj_matrix) / 2
-    )  # Diviso per 2 perché la matrice adiacente è simmetrica
+    num_edges = torch.sum(adj_matrix) / 2  # Diviso per 2 perché la matrice adiacente è simmetrica
     return num_edges
 
 
@@ -218,31 +188,36 @@ def arg_parse():
         help="Predefined maximum number of nodes in train/test graphs. -1 if determined by training data.",
     )
 
-    parser.add_argument(
-        "--num_examples", type=int, dest="num_examples", help="Number of examples"
-    )
-    parser.add_argument(
-        "--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension"
-    )
+    parser.add_argument("--num_examples", type=int, dest="num_examples", help="Number of examples")
+    parser.add_argument("--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension")
     parser.add_argument("--epochs", type=int, dest="epochs", help="Number of epochs")
+    parser.add_argument(
+        "--train_percentage", type=int, dest="train_dataset_percentage", help="Train dataset percentage"
+    )
+    parser.add_argument(
+        "--test_percentage", type=int, dest="test_dataset_percentage", help="Train dataset percentage"
+    )
+    parser.add_argument(
+        "--val_percentage", type=int, dest="val_dataset_percentage", help="Train dataset percentage"
+    )
     parser.add_argument("--device", type=str, dest="device", help="cuda or cpu")
 
+    dataset_example = 7500
+
     parser.set_defaults(
-        lr=0.001,
-        batch_size=1,
-        num_workers=1,
-        max_num_nodes=4,
-        num_examples=15,
-        latent_dimension=9,
-        epochs=5,
-        # device=torch.device("cpu"),
+        training__lr=0.001,
+        dataset__batch_size=15,
+        dataset__num_workers=1,
+        dataset__max_num_nodes=9,
+        dataset__num_examples=7500,
+        model__latent_dimension=9,
+        training__epochs=8,
+        dataset__train_percentage=0.7,
+        dataset__test_percentage=0.0,
+        dataset__val_percentage=0.3,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
-
-
-def save_png(mol, filepath, size=(600, 600)):
-    Draw.MolToFile(mol, filepath, size=size)
 
 
 def main():
@@ -253,91 +228,107 @@ def main():
 
     device = prog_args.device
 
-    # loading dataset
-    num_nodes_features = 17
-    num_edges_features = 4
-    max_num_nodes = 9
+    experiment_model_type = "GRAPH VAE"
+    model_folder = "models"
+    experiment_folder = os.path.join(model_folder, "logs_GraphVAE_" + str(prog_args.dataset__num_examples))
 
-    hyper_params = []
+    # loading dataset
+    max_num_nodes = prog_args.dataset__max_num_nodes
 
     # LOAD DATASET QM9:
-    (_, _, train_dataset_loader, _, val_dataset_loader, max_num_nodes_dataset) = (
-        load_QM9(
-            max_num_nodes,
-            prog_args.num_examples,
-            prog_args.batch_size,
-            dataset_split_list=(0.7, 0.1, 0.2),
-        )
+    (_, dataset_pad, train_dataset_loader, _, val_dataset_loader, max_num_nodes_dataset) = load_QM9(
+        max_num_nodes,
+        prog_args.dataset__num_examples,
+        prog_args.dataset__batch_size,
+        dataset_split_list=(
+            prog_args.dataset__train_percentage,
+            prog_args.dataset__test_percentage,
+            prog_args.dataset__val_percentage,
+        ),
     )
     max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
 
-    print("-------- TRAINING: --------")
+    num_nodes_features = dataset_pad[0]["features_nodes"].shape[1]
+    num_edges_features = dataset_pad[0]["features_edges"].shape[1]
 
-    print(
-        "Training set: {}".format(
-            len(train_dataset_loader) * train_dataset_loader.batch_size
-        )
-    )
-    print(
-        "Validation set : {}".format(
-            len(val_dataset_loader) * val_dataset_loader.batch_size
-        )
-    )
+    training_effective_size = len(train_dataset_loader) * train_dataset_loader.batch_size
+    validation_effective_size = len(val_dataset_loader) * val_dataset_loader.batch_size
 
-    print("max num nodes setted:", max_num_nodes)
+    print("-------- EXPERIMENT INFO --------")
+
+    print("Training set: {}".format(training_effective_size))
+    print("Validation set : {}".format(validation_effective_size))
+
     print("max num nodes in dataset:", max_num_nodes_dataset)
+    print("max num nodes setted:", max_num_nodes)
     print("max theoretical edges:", max_num_edges)
     print("num edges features", num_edges_features)
     print("num nodes features", num_nodes_features)
 
-    # set up the model:
-    model = build_model(
-        max_num_nodes=max_num_nodes,
-        max_num_edges=max_num_edges,
-        num_nodes_features=num_nodes_features,
-        num_edges_features=num_edges_features,
-        len_num_features=max_num_nodes,
-        latent_dimension=prog_args.latent_dimension,
-        device=device,
-    )
-    # training:
-    train(
-        prog_args,
-        train_dataset_loader,
-        val_dataset_loader,
-        model,
-        epochs=prog_args.epochs,
-        device=device,
-    )
+    # prima di iniziare il training creo la cartella in cui salvere i checkpoints, modello, iperparametri, etc...
+    model__hyper_params = []
+    dataset__hyper_params = []
 
-    hyper_params.append(
+    model__hyper_params.append(
         {
             "num_nodes_features": num_nodes_features,
             "num_edges_features": num_edges_features,
             "max_num_nodes": max_num_nodes,
             "max_num_edges": max_num_edges,
-            "latent_dimension": prog_args.latent_dimension,
-            "num_examples": prog_args.num_examples,
-            "batch_size": prog_args.batch_size,
+            "latent_dimension": prog_args.model__latent_dimension,
         }
     )
 
-    model_code = generate_unique_id(list(hyper_params[0].values()), 5)
+    dataset__hyper_params.append(
+        {
+            "learning_rate": prog_args.training__lr,
+            "epochs": prog_args.training__epochs,
+            "num_examples": prog_args.dataset__num_examples,
+            "batch_size": prog_args.dataset__batch_size,
+            "training_percentage": prog_args.dataset__train_percentage,
+            "test_percentage": prog_args.dataset__test_percentage,
+            "val_percentage": prog_args.dataset__val_percentage,
+            "number_val_examples": validation_effective_size,
+            "number_train_examples": training_effective_size,
+        }
+    )
 
-    # salvo gli iperparametri:
-    json_path = f"hyperparams_{model_code}.json"
+    summary = Summary(experiment_folder, experiment_model_type)
+    summary.save_model_json(model__hyper_params)
+    summary.save_summary_training(dataset__hyper_params, model__hyper_params, random.choice(dataset_pad))
 
-    # Caricamento dei dati dal file JSON
-    with open(json_path, "w") as file:
-        json.dump(hyper_params, file)
+    print("-------- TRAINING --------")
+
+    # set up the model:
+    model = GraphVAE(
+        latent_dim=prog_args.model__latent_dimension,
+        max_num_nodes=max_num_nodes,
+        max_num_edges=max_num_edges,
+        num_nodes_features=num_nodes_features,
+        num_edges_features=num_edges_features,
+        device=device,
+    )
+
+    # training:
+    train(
+        prog_args.training__lr,
+        train_dataset_loader,
+        val_dataset_loader,
+        model,
+        epochs=prog_args.training__epochs,
+        device=device,
+        checkpoints_dir=summary.directory_checkpoint,
+        logs_dir=summary.directory_log,
+    )
 
     # salvo il modello finale:
-    model_path = f"final_model_{model_code}.pth"
-    torch.save(model.state_dict(), model_path)
+    final_model_name = "trained_GraphVAE_FINAL.pth"
+    final_model_path = os.path.join(summary.directory_base, final_model_name)
+    torch.save(model.state_dict(), final_model_path)
 
     # ---- INFERENCE ----
     # Generazione di un vettore di rumore casuale
-    z = torch.randn(1, prog_args.latent_dimension).to(device)
+    z = torch.randn(1, prog_args.model__latent_dimension).to(device)
 
     # Generazione del grafo dal vettore di rumore
     with torch.no_grad():

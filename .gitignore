@@ -7,6 +7,8 @@ GraphVAE/data
 GraphVAE/dataset
 .vscode
 
+/models/*/checkpoints
+
 /extra/examples/data
 /script/logs
 /model_saved

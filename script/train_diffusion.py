@@ -1,5 +1,9 @@
 import os
+import json
+import random
+from datetime import datetime
 
+from tqdm import tqdm
 
 import torch.nn.functional as F
 import torch
@@ -10,10 +14,17 @@ from torch.optim import Adam
 from LatentDiffusion.model_latent import SimpleUnet
 from GraphVAE.model_base import MLP_VAE_plain_ENCODER
 from GraphVAE.model_graphvae import GraphVAE
-
-# from LatentDiffusion.model_VAE import MLP_VAE_plain_ENCODER, MLP_VAE_plain_DECODER
-from data_graphvae import load_QM9
-from utils import set_seed, graph_to_mol
+from utils.data_graphvae import load_QM9
+from evaluate import calc_metrics
+from utils import (
+    set_seed,
+    graph_to_mol,
+    load_from_checkpoint,
+    save_checkpoint,
+    log_metrics,
+    latest_checkpoint,
+)
+from utils.summary import Summary
 
 
 def linear_beta_schedule(timesteps, start=0.0001, end=0.02):
@@ -37,17 +48,15 @@ def forward_diffusion_sample(x_0, t, device="cpu"):
     """
     noise = torch.randn_like(x_0)
     sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, t, x_0.shape)
-    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
-        sqrt_one_minus_alphas_cumprod, t, x_0.shape
-    )
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(sqrt_one_minus_alphas_cumprod, t, x_0.shape)
     # mean + variance
     # print("Forward Diffusion Sampling:")
     # print(x_0.shape)
     # print(sqrt_alphas_cumprod_t.shape)
 
-    return sqrt_alphas_cumprod_t.to(device) * x_0.to(
+    return sqrt_alphas_cumprod_t.to(device) * x_0.to(device) + sqrt_one_minus_alphas_cumprod_t.to(
         device
-    ) + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
+    ) * noise.to(device), noise.to(device)
 
 
 # Define beta schedule
@@ -78,15 +87,11 @@ def sample_timestep(x, t, model):
     Applies noise to this image, if we are not in the last step yet.
     """
     betas_t = get_index_from_list(betas, t, x.shape)
-    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
-        sqrt_one_minus_alphas_cumprod, t, x.shape
-    )
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(sqrt_one_minus_alphas_cumprod, t, x.shape)
     sqrt_recip_alphas_t = get_index_from_list(sqrt_recip_alphas, t, x.shape)
 
     # Call model (current image - noise prediction)
-    model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
-    )
+    model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
 
     if t == 0:
@@ -96,55 +101,234 @@ def sample_timestep(x, t, model):
         return model_mean + torch.sqrt(posterior_variance_t) * noise
 
 
+def load_GraphVAE(model_folder: str = "", device="cpu"):
+
+    json_files = [file for file in os.listdir(model_folder) if file.endswith(".json")]
+    # Cerca i file con estensione .pth
+    pth_files = [file for file in os.listdir(model_folder) if file.endswith(".pth")]
+
+    if json_files:
+        hyper_file_json = os.path.join(model_folder, json_files[0])
+    else:
+        hyper_file_json = None
+
+    if pth_files:
+        model_file_pth = os.path.join(model_folder, pth_files[0])
+    else:
+        model_file_pth = None
+
+    with open(hyper_file_json, "r") as file:
+        dati = json.load(file)
+        hyper_params = dati[0]
+
+    model_GraphVAE = GraphVAE(
+        hyper_params["latent_dimension"],
+        max_num_nodes=hyper_params["max_num_nodes"],
+        max_num_edges=hyper_params["max_num_edges"],
+        num_nodes_features=hyper_params["num_nodes_features"],
+        num_edges_features=hyper_params["num_edges_features"],
+        device=device,
+    )
+
+    data_model = torch.load(model_file_pth, map_location="cpu")
+    model_GraphVAE.load_state_dict(data_model)
+
+    model_GraphVAE.to(device)
+
+    encoder = MLP_VAE_plain_ENCODER(
+        hyper_params["max_num_nodes"] * hyper_params["num_nodes_features"],
+        hyper_params["latent_dimension"],
+        device=device,
+    ).to(device)
+
+    encoder.load_state_dict(model_GraphVAE.encoder.state_dict())
+
+    return model_GraphVAE, encoder, hyper_params
+
+
+def validation(
+    model_diffusion: SimpleUnet,
+    model_vae: GraphVAE,
+    hyperparams,
+    val_loader,
+    device,
+    treshold_adj: float = 0.5,
+    treshold_diag: float = 0.5,
+):
+    model.eval()
+    smiles_pred = []
+    smiles_true = []
+    with torch.no_grad():
+        p_bar_val = tqdm(
+            val_loader, position=1, leave=False, total=len(val_loader), colour="yellow", desc="Validation"
+        )
+        for batch_val in p_bar_val:
+            z = torch.rand(len(batch_val["smiles"]), hyperparams["latent_dimension"]).to(device)
+            z = sample_timestep(z, torch.tensor([0], device=device), model_diffusion).to(device)
+            (recon_adj, recon_node, recon_edge, n_one) = model_vae.generate(z, treshold_adj, treshold_diag)
+            for index_val, elem in enumerate(batch_val["smiles"]):
+                if n_one[index_val] == 0:
+                    mol = None
+                    smile = None
+                else:
+                    mol, smile = graph_to_mol(
+                        recon_adj[index_val].cpu(),
+                        recon_node[index_val],
+                        recon_edge[index_val].cpu(),
+                        False,
+                        True,
+                    )
+
+                smiles_pred.append(smile)
+                smiles_true.append(elem)
+
+        validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
+        return validity_percentage
+
+
+def train(
+    learning_rate,
+    hyperparams,
+    train_loader,
+    val_loader,
+    encoder,
+    model_diffusion,
+    model_vae,
+    epochs=50,
+    checkpoints_dir="checkpoints",
+    logs_dir="logs",
+    device=torch.device("cpu"),
+):
+
+    optimizer = Adam(model.parameters(), lr=learning_rate)
+
+    logs_dir_csv = os.path.join(logs_dir, "metric_training.csv")
+    logs_dir_plot = os.path.join(logs_dir, "plot_training.png")
+
+    epochs_saved = 0
+    checkpoint = None
+    steps_saved = 0
+    running_steps = 0
+    val_accuracy = 0
+    train_date_loss = []
+    validation_saved = []
+
+    # Checkpoint load
+    if os.path.isdir(checkpoints_dir):
+        print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
+        checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
+
+    if checkpoint is not None and os.path.isfile(checkpoint):
+        data_saved = load_from_checkpoint(checkpoint, model, optimizer)
+        steps_saved = data_saved["step"]
+        epochs_saved = data_saved["epoch"]
+        train_date_loss = data_saved["loss"]
+        validation_saved = data_saved["other"]
+        print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
+
+    p_bar_epoch = tqdm(range(epochs), desc="epochs", position=0)
+    for epoch in p_bar_epoch:
+        if epoch < epochs_saved:
+            continue
+
+        model_diffusion.train()
+        running_loss = 0.0
+
+        # BATCH FOR LOOP
+        for i, data in tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=False):
+            optimizer.zero_grad()
+
+            t = torch.randint(0, T, (len(data["features_nodes"]),), device=device).long()
+            # print(data["smiles"][0])
+            features_nodes = data["features_nodes"].float().to(device)
+            graph_h = features_nodes.reshape(
+                -1, hyperparams["max_num_nodes"] * hyperparams["num_nodes_features"]
+            )
+            # features_edges = batch["features_edges"].float().to(device)
+            # adj_input = batch["adj"].float().to(device)
+            # print(graph_h.shape)
+            # print(features_nodes.shape)
+            batch_latent, _, _ = encoder(graph_h)
+            loss = get_loss(model_diffusion, batch_latent, t)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            running_steps += 1
+
+            train_date_loss.append((datetime.now(), loss.item()))
+
+        # Validation each epoch:
+        validity_percentage = validation(
+            model_diffusion, model_vae, hyperparams, val_loader, device, 0.3, 0.2
+        )
+        validation_saved.append([validity_percentage] * len(train_loader))
+        print(str(validity_percentage))
+
+        p_bar_epoch.write(
+            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
+        )
+        p_bar_epoch.write("Saving checkpoint...")
+        if epoch % 5 == 0 and epoch != 0:
+            save_checkpoint(
+                checkpoints_dir,
+                f"checkpoint_{epoch+1}",
+                model,
+                running_steps,
+                epoch + 1,
+                train_date_loss,
+                optimizer,
+                other=validation_saved,
+            )
+
+    print("logging")
+
+    train_loss = [x[1] for x in train_date_loss]
+    train_date = [x[0] for x in train_date_loss]
+    validation_accuracy = sum(validation_saved, [])
+
+    log_metrics(
+        epochs,
+        total_batch=len(train_loader),
+        train_loss=train_loss,
+        val_accuracy=validation_accuracy,
+        date=train_date,
+        title="Training Loss",
+        plot_save=True,
+        plot_file_path=logs_dir_plot,
+        log_file_path=logs_dir_csv,
+    )
+
+
 if __name__ == "__main__":
 
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    input_dimension = 9
-    num_nodes_features = 17
-    num_edges_features = 4
-    latent_dim = 9
-    max_num_nodes = 9
-    max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
-    BATCH_SIZE = 1
-    NUM_EXAMPLES = 1000
+    BATCH_SIZE = 15
+    NUM_EXAMPLES = 5000
     epochs = 5  # Try more!
     learning_rate = 0.01
-    file_encoder = "encoder.pth"
-    file_decoder = "decoder.pth"
+    train_percentage = 0.7
+    test_percentage = 0.0
+    val_percentage = 0.3
 
-    encoder = MLP_VAE_plain_ENCODER(
-        input_dimension * num_nodes_features,
-        latent_dim,
-        device=device,
-    )
-    decoder = GraphVAE(
-        input_dim=input_dimension,
-        latent_dim=latent_dim,
-        max_num_nodes=max_num_nodes,
-        max_num_edges=max_num_edges,
-        num_nodes_features=num_nodes_features,
-        num_edges_features=num_edges_features,
-        device=device,
-    )
+    down_channel = (7, 5, 3)
+    time_emb_dim = 16
 
-    # TODO:
-    # 1. LOAD CHECKPOINT FOR ENCODER AND DECODER
-    # ...
-    encoder.load_state_dict(torch.load(file_encoder))
+    experiment_model_type = "GRAPH VAE"
+    model_folder = "model_logs"
+    experiment_folder = os.path.join(model_folder, "logs_Diffusion_" + str(NUM_EXAMPLES))
 
-    decoder.load_vae_decoder(file_decoder)
-    decoder.load_vae_encoder(file_encoder)
-
-    encoder.to(device)
-    decoder.to(device)
+    decoder, encoder, hyperparams = load_GraphVAE(model_folder="model_logs/logs_GraphVAE_130", device=device)
+    hyperparams["down_channel"] = down_channel
+    hyperparams["time_emb_dim"] = time_emb_dim
 
     # tanto l'encoder e il decoder non vanno allenati:
     encoder.eval()
     decoder.eval()
 
-    model = SimpleUnet(latent_dim)
+    model = SimpleUnet(hyperparams["latent_dimension"], down_channel, time_emb_dim)
 
     print("Num params: ", sum(p.numel() for p in model.parameters()))
     model.to(device)
@@ -153,36 +337,55 @@ if __name__ == "__main__":
     # LOAD DATASET QM9:
     (
         _,
-        _,
+        dataset_pad,
         train_dataset_loader,
         test_dataset_loader,
         val_dataset_loader,
         max_num_nodes,
-    ) = load_QM9(max_num_nodes, NUM_EXAMPLES, BATCH_SIZE)
+    ) = load_QM9(hyperparams["max_num_nodes"], NUM_EXAMPLES, BATCH_SIZE)
+
+    training_effective_size = len(train_dataset_loader) * train_dataset_loader.batch_size
+    validation_effective_size = len(val_dataset_loader) * val_dataset_loader.batch_size
+
+    dataset__hyper_params = []
+    dataset__hyper_params.append(
+        {
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "num_examples": NUM_EXAMPLES,
+            "batch_size": BATCH_SIZE,
+            "training_percentage": train_percentage,
+            "test_percentage": test_percentage,
+            "val_percentage": val_percentage,
+            "number_val_examples": validation_effective_size,
+            "number_train_examples": training_effective_size,
+        }
+    )
+
+    summary = Summary(experiment_folder, experiment_model_type)
+    summary.save_model_json(hyperparams)
+    summary.save_summary_training(dataset__hyper_params, hyperparams, random.choice(dataset_pad))
 
     # -- TRAINING -- :
     print("\nStart training...")
-    for epoch in range(epochs):
-        for step, batch in enumerate(train_dataset_loader):
-            optimizer.zero_grad()
+    train(
+        learning_rate,
+        hyperparams,
+        train_dataset_loader,
+        val_dataset_loader,
+        encoder,
+        model,
+        decoder,
+        epochs,
+        checkpoints_dir=summary.directory_checkpoint,
+        logs_dir=summary.directory_log,
+        device=device,
+    )
 
-            t = torch.randint(
-                0, T, (len(batch["features_nodes"]),), device=device
-            ).long()
-            # print(batch["smiles"][0])
-            features_nodes = batch["features_nodes"].float().to(device)
-            graph_h = features_nodes.reshape(-1, input_dimension * num_nodes_features)
-            # features_edges = batch["features_edges"].float().to(device)
-            # adj_input = batch["adj"].float().to(device)
-            # print(graph_h.shape)
-            # print(features_nodes.shape)
-            batch_latent, _, _ = encoder(graph_h)
-            loss = get_loss(model, batch_latent, t)
-            loss.backward()
-            optimizer.step()
-
-            if epoch % 5 == 0 and step == 0:
-                print(f"Epoch {epoch} | step {step:03d} Loss: {loss.item()} ")
+    # salvo il modello finale:
+    final_model_name = "trained_Diffusion_FINAL.pth"
+    final_model_path = os.path.join(summary.directory_base, final_model_name)
+    torch.save(model.state_dict(), final_model_path)
 
     # -- INFERENCE -- :
     print("INFERENCE!")
@@ -190,7 +393,7 @@ if __name__ == "__main__":
         model.eval()
 
         # sampling di z casuale:
-        z = torch.randn(1, latent_dim).to(device)
+        z = torch.randn(1, hyperparams["latent_dimension"]).to(device)
         z = sample_timestep(z, torch.tensor([0], device=device), model).to(device)
 
         (recon_adj, recon_node, recon_edge, n_one) = decoder.generate(z, 0.4, 0.3)
@@ -198,7 +401,7 @@ if __name__ == "__main__":
             recon_adj[0].cpu(),
             recon_node[0],
             recon_edge[0].cpu(),
-            False,
+            True,
             True,
         )
         print(smile)

@@ -425,6 +425,12 @@ class MLP_VAE_plain_ENCODER(nn.Module):
         self.encode_11 = nn.Linear(h_size, embedding_size).to(device=device)  # mu
         self.encode_12 = nn.Linear(h_size, embedding_size).to(device=device)  # lsgms
 
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data = init.xavier_uniform_(
+                    m.weight.data, gain=nn.init.calculate_gain("relu")
+                )
+
     def forward(self, h):
         # encoder
         z_mu = self.encode_11(h)
@@ -451,6 +457,12 @@ class MLP_VAE_plain_DECODER(nn.Module):
 
         self.decode_edges_1_features = nn.Linear(embedding_size, embedding_size)
         self.decode_edges_2_features = nn.Linear(embedding_size, e_size)
+
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                m.weight.data = init.xavier_uniform_(
+                    m.weight.data, gain=nn.init.calculate_gain("relu")
+                )
 
     def forward(self, z):
         # decoder
@@ -481,11 +493,11 @@ class MLP_VAE_plain(nn.Module):
 
         self.decoder = MLP_VAE_plain_DECODER(h_size, embedding_size, y_size, e_size)
 
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                m.weight.data = init.xavier_uniform_(
-                    m.weight.data, gain=nn.init.calculate_gain("relu")
-                )
+        # for m in self.modules():
+        #     if isinstance(m, nn.Linear):
+        #         m.weight.data = init.xavier_uniform_(
+        #             m.weight.data, gain=nn.init.calculate_gain("relu")
+        #         )
 
     def forward(self, h):
 
@@ -494,22 +506,6 @@ class MLP_VAE_plain(nn.Module):
         y, n_features, e_features = self.decoder(z)
 
         return y, z_mu, z_lsgms, n_features, e_features
-
-    def save_encoder(self, path_to_save_model):
-        torch.save(
-            self.encoder.state_dict(), os.path.join(path_to_save_model, "encoder.pth")
-        )
-
-    def save_decoder(self, path_to_save_model):
-        torch.save(
-            self.decoder.state_dict(), os.path.join(path_to_save_model, "decoder.pth")
-        )
-
-    def load_encoder(self, file):
-        self.encoder.load_state_dict(torch.load(file))
-
-    def load_decoder(self, file):
-        self.decoder.load_state_dict(torch.load(file))
 
 
 # a deterministic linear output (update: add noise)

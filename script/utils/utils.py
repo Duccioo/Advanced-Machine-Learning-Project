@@ -37,7 +37,7 @@ def generate_unique_id(params: list = [], lenght: int = 10) -> str:
 
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
-    random.seed(seed)
+    # random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     # When running on the CuDNN backend, two further options must be set
@@ -289,10 +289,7 @@ def clean_old_checkpoint(folder_path, percentage):
     """
 
     # ordina i file per data di creazione
-    files = [
-        (f, os.path.getctime(os.path.join(folder_path, f)))
-        for f in os.listdir(folder_path)
-    ]
+    files = [(f, os.path.getctime(os.path.join(folder_path, f))) for f in os.listdir(folder_path)]
     files.sort(key=lambda x: x[1])
 
     # calcola il numero di file da eliminare
@@ -500,6 +497,4 @@ if __name__ == "__main__":
     # e che conosci il numero totale di epoche e il numero di elementi per batch
     elementi_per_batch = 10
 
-    log_metrics(
-        epochs, train_loss, plot_show=True, elements_per_batch=elementi_per_batch
-    )
+    log_metrics(epochs, train_loss, plot_show=True, elements_per_batch=elementi_per_batch)

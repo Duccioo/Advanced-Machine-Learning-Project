@@ -69,13 +69,16 @@ class SimpleUnet(nn.Module):
     A simplified variant of the Unet architecture.
     """
 
-    def __init__(self, latent_dimension: int = 5):
+    def __init__(
+        self,
+        latent_dimension: int = 5,
+        down_channels: tuple = (4, 3, 2),
+        time_emb_dim: int = 16,
+    ):
         super().__init__()
-        down_channels = (4, 3, 2)
-        up_channels = (2, 3, 4)
         out_dim = latent_dimension
-
-        time_emb_dim = 16
+        
+        up_channels = tuple(reversed(down_channels))
 
         # Time embedding
         self.time_mlp = nn.Sequential(

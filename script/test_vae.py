@@ -4,10 +4,11 @@ from tqdm import tqdm
 import argparse
 import csv
 from datetime import datetime
+import json
 
 # ---
 from GraphVAE.model_graphvae import GraphVAE
-from data_graphvae import load_QM9
+from utils.data_graphvae import load_QM9
 from utils import load_from_checkpoint, latest_checkpoint, graph_to_mol, set_seed
 from evaluate import calc_metrics
 
@@ -56,9 +57,7 @@ def test(model, val_loader, latent_dimension, device, treshold_adj, treshold_dia
         for idx, data in val_pbar:
             # print("-----")
             z = torch.rand(len(data), latent_dimension).to(device)
-            (recon_adj, recon_node, recon_edge, n_one) = model.generate(
-                z, treshold_adj, treshold_diag
-            )
+            (recon_adj, recon_node, recon_edge, n_one) = model.generate(z, treshold_adj, treshold_diag)
             for idx_data, elem in enumerate(data):
                 if n_one[idx_data] == 0:
                     mol = None
@@ -80,12 +79,10 @@ def test(model, val_loader, latent_dimension, device, treshold_adj, treshold_dia
                 edges_medi_pred += n_one[idx_data]
                 edges_medi_true += data["num_edges"][idx_data]
 
-    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(
-        smiles_true, smiles_pred
-    )
+    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(smiles_true, smiles_pred)
 
     edges_medi_pred = (edges_medi_pred / len(smiles_pred)).item()
-    edges_medi_true = (edges_medi_true / len(smiles_true))[0].item()
+    edges_medi_true = (edges_medi_true / len(smiles_true)).item()
 
     return (
         validity_percentage,
@@ -121,18 +118,14 @@ def arg_parse():
         help="Predefined maximum number of nodes in train/test graphs. -1 if determined by training data.",
     )
 
-    parser.add_argument(
-        "--num_examples", type=int, dest="num_examples", help="Number of examples"
-    )
-    parser.add_argument(
-        "--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension"
-    )
+    parser.add_argument("--num_examples", type=int, dest="num_examples", help="Number of examples")
+    parser.add_argument("--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension")
     parser.add_argument("--epochs", type=int, dest="epochs", help="Number of epochs")
     parser.add_argument("--device", type=str, dest="device", help="cuda or cpu")
 
     parser.set_defaults(
-        treshold_adj=0.5,
-        treshold_diag=0.5,
+        treshold_adj=[0.1, 0.2, 0.3, 0.4, 0.5],
+        treshold_diag=[0.1, 0.2, 0.3, 0.4, 0.5],
         lr=0.001,
         batch_size=30,
         num_workers=1,
@@ -163,87 +156,9 @@ def write_csv(file_csv, header, risultati):
         writer.writerow(risultati)
 
 
-if __name__ == "__main__":
-    print("~" * 20, "TESTING", "~" * 20)
-    set_seed(42)
-
-    args_parsed = arg_parse()
-
-    # loading dataset
-    num_nodes_features = 17
-    num_edges_features = 4
-    num_examples = args_parsed.num_examples
-    batch_size = args_parsed.batch_size
-
-    max_num_nodes = args_parsed.max_num_nodes
-    latent_dimension = args_parsed.latent_dimension
-
-    checkpoints_dir = "checkpoints"
-    learning_rate = args_parsed.lr
-
-    LR_milestones = [500, 1000]
-
-    device = args_parsed.device
-
-    # LOAD DATASET QM9:
-    (
-        _,
-        _,
-        train_dataset_loader,
-        test_dataset_loader,
-        val_dataset_loader,
-        max_num_nodes,
-    ) = load_QM9(
-        max_num_nodes, num_examples, batch_size, dataset_split_list=(0.5, 0.5, 0.0)
-    )
-
-    max_num_edges = max_num_nodes * (max_num_nodes - 1) // 2
-
-    print("----------------" * 2)
-    print("Test set: {}".format(len(test_dataset_loader) * batch_size))
-    print("max num edges:", max_num_edges)
-    print("max num nodes:", max_num_nodes)
-    print("num edges features", num_edges_features)
-    print("num nodes features", num_nodes_features)
-    print("Treshold Adj:", args_parsed.treshold_adj)
-    print("Treshold Diag:", args_parsed.treshold_diag)
-
-    model = build_model(
-        max_num_nodes=max_num_nodes,
-        max_num_edges=max_num_edges,
-        num_nodes_features=num_nodes_features,
-        num_edges_features=num_edges_features,
-        len_num_features=max_num_nodes,
-        latent_dimension=latent_dimension,
-        device=device,
-    )
-
-    # Checkpoint load
-    if os.path.isdir(checkpoints_dir):
-        print(f"trying to load latest checkpoint from directory {checkpoints_dir}")
-        checkpoint = latest_checkpoint(checkpoints_dir, "checkpoint")
-
-    if checkpoint is not None and os.path.isfile(checkpoint):
-        data_saved = load_from_checkpoint(
-            checkpoint,
-            model,
-        )
-
-    validity, uniqueness, novelty, edges_pred, edges_true = test(
-        model,
-        test_dataset_loader,
-        latent_dimension,
-        device,
-        treshold_adj=args_parsed.treshold_adj,
-        treshold_diag=args_parsed.treshold_diag,
-    )
-
-    print(f"Validità: {validity:.2%}")
-    print(f"Unicità: {uniqueness:.2%}")
-    print(f"Novità: {novelty:.2%}")
-
-    print("Numero edge medi predetti: ", edges_pred)
-    print("Numero edge medi true: ", edges_true)
+def treshold_search(
+    list_treshold_adj, list_treshold_diag, model, test_dataset_loader, latent_dimension, device, folder_base
+):
     header = [
         "Treshold ADJ",
         "Treshold DIAG",
@@ -254,15 +169,116 @@ if __name__ == "__main__":
         "Edges Medi true",
         "Data",
     ]
-    results = [
+    print("------- TRESHOLD SEARCH -------")
+    for t_adj in list_treshold_adj:
+        for t_diag in list_treshold_diag:
+            print("--- Testing Treshold Adj:", t_adj, "Treshold Diag:", t_diag)
+            validity, uniqueness, novelty, edges_pred, edges_true = test(
+                model, test_dataset_loader, latent_dimension, device, t_adj, t_diag
+            )
+
+            print(f"--- Validità: {validity:.2%}")
+            print(f"--- Unicità: {uniqueness:.2%}")
+            print(f"--- Novità: {novelty:.2%}")
+
+            print("--- Numero edge medi predetti: ", edges_pred)
+            print("--- Numero edge medi true: ", edges_true)
+
+            print("------- ............ -------")
+
+            results = [
+                t_adj,
+                t_diag,
+                validity * 100,
+                uniqueness * 100,
+                novelty * 100,
+                edges_pred,
+                edges_true,
+            ]
+
+            nome_file = os.path.join(folder_base, "test_result_vae.csv")
+            write_csv(nome_file, header, results)
+
+
+def load_GraphVAE(model_folder: str = "", device="cpu"):
+
+    json_files = [file for file in os.listdir(model_folder) if file.endswith(".json")]
+    # Cerca i file con estensione .pth
+    pth_files = [file for file in os.listdir(model_folder) if file.endswith(".pth")]
+
+    if json_files:
+        hyper_file_json = os.path.join(model_folder, json_files[0])
+    else:
+        hyper_file_json = None
+
+    if pth_files:
+        model_file_pth = os.path.join(model_folder, pth_files[0])
+    else:
+        model_file_pth = None
+
+    with open(hyper_file_json, "r") as file:
+        dati = json.load(file)
+        hyper_params = dati[0]
+
+    model_GraphVAE = GraphVAE(
+        hyper_params["latent_dimension"],
+        max_num_nodes=hyper_params["max_num_nodes"],
+        max_num_edges=hyper_params["max_num_edges"],
+        num_nodes_features=hyper_params["num_nodes_features"],
+        num_edges_features=hyper_params["num_edges_features"],
+        device=device,
+    )
+
+    data_model = torch.load(model_file_pth, map_location="cpu")
+    model_GraphVAE.load_state_dict(data_model)
+
+    model_GraphVAE.to(device)
+
+    return model_GraphVAE, hyper_params
+
+
+if __name__ == "__main__":
+    print("~" * 20, "TESTING", "~" * 20)
+    set_seed(42)
+
+    args_parsed = arg_parse()
+
+    # loading dataset
+    num_examples = args_parsed.num_examples
+    batch_size = args_parsed.batch_size
+    device = args_parsed.device
+
+    folder_base = "models"
+    experiment_model_name = "logs_GraphVAE_130"
+    model_folder_base = os.path.join(folder_base, experiment_model_name)
+
+    model, hyperparams = load_GraphVAE(model_folder=model_folder_base, device=device)
+
+    # LOAD DATASET QM9:
+    (
+        _,
+        _,
+        train_dataset_loader,
+        test_dataset_loader,
+        val_dataset_loader,
+        max_num_nodes,
+    ) = load_QM9(hyperparams["max_num_nodes"], num_examples, batch_size, dataset_split_list=(0.5, 0.5, 0.0))
+
+    max_num_edges = hyperparams["max_num_edges"]
+
+    print("----------------" * 2)
+    print("Test set: {}".format(len(test_dataset_loader) * batch_size))
+    print("max num edges:", max_num_edges)
+    print("max num nodes:", max_num_nodes)
+    print("num edges features", hyperparams["num_edges_features"])
+    print("num nodes features", hyperparams["num_nodes_features"])
+
+    treshold_search(
         args_parsed.treshold_adj,
         args_parsed.treshold_diag,
-        validity * 100,
-        uniqueness * 100,
-        novelty * 100,
-        edges_pred,
-        edges_true,
-    ]
-    nome_file = "result_vae.csv"
-
-    write_csv(nome_file, header, results)
+        model,
+        test_dataset_loader,
+        hyperparams["latent_dimension"],
+        device,
+        model_folder_base,
+    )

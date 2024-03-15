@@ -91,9 +91,7 @@ def one_hot_encoding(matrix, col_index, mapping_dict):
     # Otteniamo la colonna da codificare
     col_to_encode = matrix[:, col_index]
     # Applichiamo il mapping utilizzando il metodo map di Python
-    one_hot_encoded = torch.tensor(
-        list(map(lambda x: mapping_dict[int(x.item())], col_to_encode))
-    )
+    one_hot_encoded = torch.tensor(list(map(lambda x: mapping_dict[int(x.item())], col_to_encode)))
 
     # Sostituiamo la quinta colonna con la codifica one-hot
     matrix = torch.cat(
@@ -187,13 +185,9 @@ def create_padded_graph_list(
         if remove_duplicates_features:
             # rimuovi duplicati dalla matrice delle features degli edges
             # cerca gli edge unici
-            unique_edges = list(
-                set(tuple(sorted(x.tolist())) for x in data.edge_index.T)
-            )
+            unique_edges = list(set(tuple(sorted(x.tolist())) for x in data.edge_index.T))
             # estraggo gli indici degli edge unici
-            indices = [
-                data.edge_index.T.tolist().index(list(edge)) for edge in unique_edges
-            ]
+            indices = [data.edge_index.T.tolist().index(list(edge)) for edge in unique_edges]
             data.edge_attr = data.edge_attr[indices]
 
         data.adj = pad_adjacency_matrix(data.adj, max_num_nodes)
@@ -205,7 +199,7 @@ def create_padded_graph_list(
             "features_nodes": data.x,  # Aggiunta delle features con padding
             "features_edges": data.edge_attr,
             "num_nodes": len(data.z),
-            "num_edges": data.num_edges,
+            "num_edges": data.num_edges.tolist()[0],
             "smiles": data.smiles,
         }
 
@@ -253,8 +247,7 @@ def graph_to_molecule(graph):
 
     # Remove "no atoms" & atoms with no bonds
     keep_idx = np.where(
-        (np.argmax(features, axis=1) != ATOM_DIM - 1)
-        & (np.sum(adjacency[:-1], axis=(0, 1)) != 0)
+        (np.argmax(features, axis=1) != ATOM_DIM - 1) & (np.sum(adjacency[:-1], axis=(0, 1)) != 0)
     )[0]
     features = features[keep_idx]
     adjacency = adjacency[:, keep_idx, :][:, :, keep_idx]
@@ -284,21 +277,19 @@ def graph_to_molecule(graph):
 
 
 def load_QM9(
-    max_num_nodes=6,
-    num_examples=1000,
-    batch_size=5,
-    dataset_split_list=(0.7, 0.2, 0.1),
-    apriori_max_num_nodes=-1,
-    num_workers=2,
+    max_num_nodes: int = 6,
+    num_examples: int = 1000,
+    batch_size: int = 5,
+    dataset_split_list: tuple = (0.7, 0.2, 0.1),
+    apriori_max_num_nodes: int = -1,
+    num_workers: int = 2,
 ):
     apriori_max_num_nodes = -1
 
     # loading dataset
     dataset = QM9(
         root=os.path.join("data", "QM9"),
-        pre_filter=T.ComposeFilters(
-            [FilterSingleton(), FilterMaxNodes(apriori_max_num_nodes)]
-        ),
+        pre_filter=T.ComposeFilters([FilterSingleton(), FilterMaxNodes(apriori_max_num_nodes)]),
         pre_transform=T.Compose([OneHotEncoding(), AddAdj()]),
         transform=T.Compose([ToTensor()]),
     )
@@ -309,26 +300,23 @@ def load_QM9(
     dataset = dataset[0:num_examples]
     print("Number of graphs: ", len(dataset))
 
-    # Filtra i grafi con un numero di nodi maggiore di 10
+    # Filtra i grafi con un numero di nodi maggiore di max_num_nodes
     dataset = [data for data in dataset if data.num_nodes <= max_num_nodes]
 
     max_num_nodes_dataset = max([dataset[i].num_nodes for i in range(len(dataset))])
 
-    dataset_padded, max_num_nodes, max_num_edges = create_padded_graph_list(
-        dataset,
-        max_num_nodes,
-    )
+    dataset_padded, max_num_nodes, _ = create_padded_graph_list(dataset, max_num_nodes)
 
     # split dataset
     train_size = int(dataset_split_list[0] * len(dataset))
+
     test_size = int(dataset_split_list[1] * len(dataset))
-    # val_size = int(dataset_split_list[2] * len(dataset))
     val_size = len(dataset) - train_size - test_size
+
+    # val_size = int(dataset_split_list[2] * len(dataset))
     # print(val_size, train_size, test_size)
 
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset_padded, [train_size, val_size, test_size]
-    )
+    train_dataset, val_dataset, test_dataset = random_split(dataset_padded, [train_size, val_size, test_size])
 
     train_dataset_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -337,16 +325,11 @@ def load_QM9(
     )
 
     test_dataset_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        num_workers=num_workers,
+        test_dataset, batch_size=batch_size, num_workers=num_workers
     )
 
     val_dataset_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        shuffle=False,
-        batch_size=batch_size,
-        num_workers=num_workers,
+        val_dataset, shuffle=False, batch_size=batch_size, num_workers=num_workers
     )
 
     return (
