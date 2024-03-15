@@ -263,10 +263,9 @@ def train(
             model_diffusion, model_vae, hyperparams, val_loader, device, 0.3, 0.2
         )
         validation_saved.append([validity_percentage] * len(train_loader))
-        print(str(validity_percentage))
 
         p_bar_epoch.write(
-            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
+            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {validity_percentage:.2f}%"
         )
         p_bar_epoch.write("Saving checkpoint...")
         if epoch % 5 == 0 and epoch != 0:
@@ -307,7 +306,7 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 15
     NUM_EXAMPLES = 5000
-    epochs = 5  # Try more!
+    epochs = 50  # Try more!
     learning_rate = 0.01
     train_percentage = 0.7
     test_percentage = 0.0
@@ -316,11 +315,13 @@ if __name__ == "__main__":
     down_channel = (7, 5, 3)
     time_emb_dim = 16
 
-    experiment_model_type = "GRAPH VAE"
-    model_folder = "model_logs"
+    experiment_model_type = "Diffusion"
+    model_folder = "models"
     experiment_folder = os.path.join(model_folder, "logs_Diffusion_" + str(NUM_EXAMPLES))
 
-    decoder, encoder, hyperparams = load_GraphVAE(model_folder="model_logs/logs_GraphVAE_130", device=device)
+    folder_GraphVAE = os.path.join(model_folder, "logs_GraphVAE_7500")
+
+    decoder, encoder, hyperparams = load_GraphVAE(model_folder=folder_GraphVAE, device=device)
     hyperparams["down_channel"] = down_channel
     hyperparams["time_emb_dim"] = time_emb_dim
 

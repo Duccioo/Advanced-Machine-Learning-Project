@@ -214,7 +214,9 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## To do:
 
+- sistemare lo script per il test per fare sia il GraphVAE che il Diffusion
 - (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
+
 
 # esperimenti:
 
