@@ -78,7 +78,7 @@ posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod
 def get_loss(model, x_0, t):
     x_noisy, noise = forward_diffusion_sample(x_0, t, device)
     noise_pred = model(x_noisy, t)
-    return F.mse_loss(noise, noise_pred, reduce="sum")
+    return F.mse_loss(noise_pred, noise)
 
 
 @torch.no_grad()
@@ -333,8 +333,7 @@ if __name__ == "__main__":
     test_percentage = 0.0
     val_percentage = 0.3
 
-
-    down_channel = (7, 5,3)
+    down_channel = (7, 5, 3)
     time_emb_dim = 6
 
     experiment_model_type = "Diffusion"

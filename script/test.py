@@ -295,7 +295,7 @@ if __name__ == "__main__":
     device = args_parsed.device
 
     folder_base = "models"
-    experiment_model_vae_name = "logs_GraphVAE_30000"
+    experiment_model_vae_name = "logs_GraphVAE_7500"
 
     experiment_model_diffusion_name = "logs_Diffusion_100000"
 
