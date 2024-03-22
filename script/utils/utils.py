@@ -321,17 +321,6 @@ def log(
     checkpoint_base_name=_checkpoint_base_name,
     accuracy=0,
 ):
-    if run_step % params.steps_per_img_save == 0 and run_step > 0:
-
-        # controllo se il parametro di telegram è stato impostato
-        if params.telegram == True:
-            # se è attivo invio un messaggio dal bot
-            telegram_alert.alert(
-                "TRAINING",
-                run_step,
-                params.steps,
-                f"Loss: <b>{(d_loss.item()):.2f}</b>\nEpoca: <b>{(run_epoch)}</b>\tSTEP: <b>{(run_step)}</b>",
-            )
 
     if run_step == params.steps:
         # quando finisco il training
