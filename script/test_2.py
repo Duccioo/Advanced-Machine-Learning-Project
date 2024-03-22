@@ -7,14 +7,12 @@ from datetime import datetime
 import json
 
 # ---
-from GraphVAE.model_graphvae import GraphVAE
+from GraphVAE.model_graphvae import GraphVAE, MLP_VAE_plain_ENCODER
 from LatentDiffusion.model_latent import SimpleUnet
 from utils.data_graphvae import load_QM9
-from utils import graph_to_mol, set_seed
+from utils import load_from_checkpoint, latest_checkpoint, graph_to_mol, set_seed
 from evaluate import calc_metrics
 from train_diffusion import sample_timestep
-
-
 
 def test(
     model_vae: GraphVAE,
@@ -23,41 +21,45 @@ def test(
     device,
     treshold_adj: float,
     treshold_diag: float,
-    model_diffusion: SimpleUnet=None,
+    model_diffusion: SimpleUnet = None,
 ):
+    
     model_vae.eval()
+    
+    
     if model_diffusion is not None:
         print("TEST ON LATENT DIFFUSION")
         model_diffusion.eval()
     else:
         print("TEST ON GRAPHVAE")
+        
+    
+    
     smiles_pred = []
     smiles_true = []
     edges_medi_pred = 0
     edges_medi_true = 0
-    val_pbar = tqdm(
-        enumerate(val_loader),
-        total=len(val_loader),
-        colour="red",
-        desc="Batch",
-        position=0,
-        leave=False,
-    )
-    with torch.no_grad():
-        for idx, data in val_pbar:
-            z = torch.rand(len(data["smiles"]), latent_dimension).to(device)
+    # val_pbar = tqdm(
+    #     enumerate(val_loader),
+    #     total=len(val_loader),
+    #     colour="red",
+    #     desc="Batch",
+    #     position=1,
+    #     leave=False,
+    # )
+    
 
-            # print("-----")
+
+    with torch.no_grad():
+        for data in val_loader:
+            z = torch.rand(len(data), latent_dimension, device=device)
             if model_diffusion is not None:
 
-                z = sample_timestep(
-                    z, torch.tensor([0], device=device), model_diffusion
-                ).to(device)
+                z = sample_timestep(z, torch.tensor([0], device=device), model_diffusion).to(device)
 
-            (recon_adj, recon_node, recon_edge, n_one) = model_vae.generate(
-                z, treshold_adj, treshold_diag
-            )
-            for idx_data, elem in enumerate(data["smiles"]):
+            (recon_adj, recon_node, recon_edge, n_one) = model_vae.generate(z, treshold_adj, treshold_diag)
+
+            for idx_data, elem in enumerate(data):
                 if n_one[idx_data] == 0:
                     mol = None
                     smile = None
@@ -73,14 +75,12 @@ def test(
                 #     val_pbar.write("ERROR impossibile creare Molecola")
 
                 smiles_pred.append(smile)
-                smiles_true.append(elem)
+                smiles_true.append(data["smiles"][idx_data])
 
                 edges_medi_pred += n_one[idx_data]
                 edges_medi_true += data["num_edges"][idx_data]
-                
-    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(
-        smiles_true, smiles_pred
-    )
+
+    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(smiles_true, smiles_pred)
 
     edges_medi_pred = (edges_medi_pred / len(smiles_pred)).item()
     edges_medi_true = (edges_medi_true / len(smiles_true)).item()
@@ -119,20 +119,18 @@ def arg_parse():
         help="Predefined maximum number of nodes in train/test graphs. -1 if determined by training data.",
     )
 
-    parser.add_argument(
-        "--num_examples", type=int, dest="num_examples", help="Number of examples"
-    )
-    parser.add_argument(
-        "--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension"
-    )
+    parser.add_argument("--num_examples", type=int, dest="num_examples", help="Number of examples")
+    parser.add_argument("--latent_dimension", type=int, dest="latent_dimension", help="Latent Dimension")
     parser.add_argument("--epochs", type=int, dest="epochs", help="Number of epochs")
     parser.add_argument("--device", type=str, dest="device", help="cuda or cpu")
+
     parser.set_defaults(
-        
-        treshold_adj=[0.1,0.15, 0.2, 0.25, 0.3, 0.35,0.4, 0.45,  0.5],
-        treshold_diag=[0.1,0.15, 0.2, 0.25, 0.3, 0.35,0.4, 0.45,  0.5],
+        treshold_adj=[0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5],
+        treshold_diag=[0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5],
         batch_size=5000,
+        max_num_nodes=9,
         num_examples=100000,
+        # device=torch.device("cpu"),
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
     return parser.parse_args()
@@ -176,7 +174,15 @@ def treshold_search(
         "Data",
     ]
     print("------- TRESHOLD SEARCH -------")
-    for t_adj in list_treshold_adj:
+    t_adj_pbar = tqdm(
+        list_treshold_adj,
+        total=len(list_treshold_adj),
+        colour="blue",
+        desc="Batch",
+        position=0,
+        leave=True,
+    )
+    for t_adj in t_adj_pbar:
         for t_diag in list_treshold_diag:
             print("--- Testing Treshold Adj:", t_adj, "Treshold Diag:", t_diag)
             validity, uniqueness, novelty, edges_pred, edges_true = test(
@@ -208,11 +214,13 @@ def treshold_search(
                 edges_true,
             ]
 
-            nome_file = os.path.join(folder_base, "test_result.csv")
+            nome_file = os.path.join(folder_base, "test_result_0000.csv")
             write_csv(nome_file, header, results)
 
 
 def load_GraphVAE(model_folder: str = "", device="cpu"):
+
+    print("Loading model GraphVAE from", model_folder)
 
     json_files = [file for file in os.listdir(model_folder) if file.endswith(".json")]
     # Cerca i file con estensione .pth
@@ -243,6 +251,7 @@ def load_GraphVAE(model_folder: str = "", device="cpu"):
 
     data_model = torch.load(model_file_pth, map_location="cpu")
     model_GraphVAE.load_state_dict(data_model)
+
 
     model_GraphVAE.to(device)
 
@@ -278,7 +287,8 @@ def load_Diffusion(model_folder: str = "", device="cpu"):
     )
 
     model_diffusion.load_state_dict(torch.load(model_file_pth, map_location="cpu"))
-    model_diffusion.to(device)
+    
+    model_diffusion.to(device=device)
 
     return model_diffusion
 
@@ -293,6 +303,7 @@ if __name__ == "__main__":
     num_examples = args_parsed.num_examples
     batch_size = args_parsed.batch_size
     device = args_parsed.device
+    # device = torch.device("cpu")
 
     folder_base = "models"
     experiment_model_vae_name = "logs_GraphVAE_30000"
@@ -302,12 +313,10 @@ if __name__ == "__main__":
     model_folder_vae_base = os.path.join(folder_base, experiment_model_vae_name)
     model_folder_diff_base = os.path.join(folder_base, experiment_model_diffusion_name)
 
-    model_vae, hyperparams = load_GraphVAE(
-        model_folder=model_folder_vae_base, device=device
-    )
+    model_vae, hyperparams = load_GraphVAE(model_folder=model_folder_vae_base, device=device)
 
-    # model_diffusion = load_Diffusion(model_folder_diff_base, device=device)
-    model_diffusion = None
+    model_diffusion = load_Diffusion(model_folder_diff_base, device=device)
+    # model_diffusion = None
 
     # LOAD DATASET QM9:
     (
@@ -321,8 +330,10 @@ if __name__ == "__main__":
         hyperparams["max_num_nodes"],
         num_examples,
         batch_size,
-        dataset_split_list=(0, 1, 0.0),
+        dataset_split_list=(0.0, 1, 0.0),
     )
+
+    print("Loaded dataset QM9")
 
     max_num_edges = hyperparams["max_num_edges"]
 
@@ -343,7 +354,5 @@ if __name__ == "__main__":
         test_dataset_loader=test_dataset_loader,
         latent_dimension=hyperparams["latent_dimension"],
         device=device,
-        folder_base=(
-            model_folder_vae_base if model_diffusion is None else model_folder_diff_base
-        ),
+        folder_base=(model_folder_vae_base if model_diffusion is None else model_folder_diff_base),
     )

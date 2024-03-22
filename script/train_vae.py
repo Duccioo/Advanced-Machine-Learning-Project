@@ -108,14 +108,15 @@ def train(
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
 
-            model.zero_grad()
+            # model.zero_grad()
 
             adj_vec, mu, var, node_recon, edge_recon = model(features_nodes)
 
             loss = model.loss(
                 adj_input, adj_vec, features_nodes, node_recon, features_edges, edge_recon, mu, var
             )
-
+            
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()

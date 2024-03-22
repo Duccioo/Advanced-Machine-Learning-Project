@@ -325,8 +325,8 @@ if __name__ == "__main__":
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    BATCH_SIZE = 15
-    NUM_EXAMPLES = 12000+int(12000*0.3)
+    BATCH_SIZE = 64
+    NUM_EXAMPLES = 100000
     epochs = 50  # Try more!
     learning_rate = 0.01
     train_percentage = 0.7
@@ -334,7 +334,7 @@ if __name__ == "__main__":
     val_percentage = 0.3
 
 
-    down_channel = (7, 3)
+    down_channel = (7, 5,3)
     time_emb_dim = 6
 
     experiment_model_type = "Diffusion"

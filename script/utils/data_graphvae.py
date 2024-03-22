@@ -282,7 +282,7 @@ def load_QM9(
     batch_size: int = 5,
     dataset_split_list: tuple = (0.7, 0.2, 0.1),
     apriori_max_num_nodes: int = -1,
-    num_workers: int = 2,
+    num_workers: int = 0,
 ):
     apriori_max_num_nodes = -1
 
