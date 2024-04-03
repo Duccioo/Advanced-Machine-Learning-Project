@@ -9,9 +9,18 @@ def calc_metrics(
 ):
     validity_smiles = [calculate_validity(mol) for mol in smiles_predicted]
 
-    validity_percentage = sum(validity_smiles) / len(smiles_predicted)
+    print(list(set(validity_smiles)))
+    print(
+        "Molecole diverse sia valide che non valide in predizione:",
+        len(list(set(smiles_predicted))) / len(smiles_predicted),
+    )
+    validity_percentage = sum(1.0 for elemento in validity_smiles if elemento is not False) / len(
+        smiles_predicted
+    )
     uniqueness_percentage = calculate_uniqueness(smiles_predicted, smiles_predicted)
     novelty_percentage = calculate_novelty_2(smiles_predicted, smiles_true)
+
+    # print(validity_percentage, uniqueness_percentage, novelty_percentage)
 
     return validity_percentage, uniqueness_percentage, novelty_percentage
 
@@ -27,7 +36,7 @@ def calculate_validity(smiles):
     else:
         try:
             m = Chem.SanitizeMol(m)
-            return True
+            return smiles
         except:
             # print("Invalid SMILES: %s" % smiles)
             return False
