@@ -108,6 +108,18 @@ def sample_timestep(x, t, model):
 
 
 def load_GraphVAE(model_folder: str = "", device="cpu"):
+    """
+    A function to load a GraphVAE model from the specified model folder.
+
+    Parameters:
+    - model_folder (str): The path to the folder containing the model files.
+    - device (str): The device where the model will be loaded (default is "cpu").
+
+    Returns:
+    - model_GraphVAE (GraphVAE): The loaded GraphVAE model.
+    - encoder (MLP_VAE_plain_ENCODER): The encoder model associated with the GraphVAE.
+    - hyper_params (dict): The hyperparameters used for the model.
+    """
 
     json_files = [file for file in os.listdir(model_folder) if file.endswith(".json")]
     # Cerca i file con estensione .pth
@@ -327,7 +339,7 @@ if __name__ == "__main__":
 
     BATCH_SIZE = 64
     NUM_EXAMPLES = 100000
-    epochs = 50  # Try more!
+    epochs = 50 
     learning_rate = 0.01
     train_percentage = 0.7
     test_percentage = 0.0

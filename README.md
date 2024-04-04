@@ -214,27 +214,20 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 ## To do:
 
-- sistemare lo script per il test per fare sia il GraphVAE che il Diffusion
 - (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
 
+# Problemi dagli esperimenti:
 
-# esperimenti:
+- La novelty risulta troppo bassa:
+  - Overfitting dei dati nel graphvae
+  - Problema nel codice del graphvae:
+    - Problema durante la generazione di molecole
+    - Problema nel training
 
-- 100 esempi (Tommaso)
-- 1000 esempi (Tommaso)
-- 5000 esempi (Duccio)
-- 10000 esempi (Duccio)
+# meeting: 4/04
 
-- GraphVAE:
-  - 8 epoche per ogni esperimento
+- stampare le loss separate e vedere dove va
+  - plotting della loss sia sul training che nel validation
+- allenare con 2 distinti loss, prendere l'optimization solo sui parametri (quando istanzio l'optimization separo i 2 parametri)
 
-- per ogni esperimento:
-  - salvare encoder e decoder
-
-  - fare il training del Difussion Model:
-    - 50 epoche, magari fare qualche prova per vedere come si comporta
-  
-  - TEST:
-    - test VAE
-    - test Diffusion
-    - provare diverse soglie per ogni test
+- nel diffusion abbassare il learning_rate a 1e-5
