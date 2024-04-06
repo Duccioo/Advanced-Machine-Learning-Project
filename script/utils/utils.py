@@ -363,7 +363,8 @@ def log(
 
 def log_metrics(
     epochs: int,
-    train_loss: list,
+    train_total_loss: list,
+    train_dict_losses: dict = None,
     train_accuracy: list = [],
     val_accuracy: list = [],
     date: list = [],
@@ -416,7 +417,12 @@ def log_metrics(
     else:
         total_elemets = np.arange(1, epochs + 1)
 
-    plt.plot(total_elemets, train_loss, label="Train Loss", marker="o")
+    plt.plot(total_elemets, train_total_loss, label="Train Loss", marker="o")
+    if train_dict_losses is not None:
+        plt.plot(total_elemets, train_dict_losses["train_adj_recon_loss"], label="ADJ recon Loss")
+        plt.plot(total_elemets, train_dict_losses["train_kl_loss"], label="KL Loss")
+        plt.plot(total_elemets, train_dict_losses["train_edge_loss"], label="Edge Loss")
+        plt.plot(total_elemets, train_dict_losses["train_node_loss"], label="Node Loss")
 
     metric_label = "Loss"
     if val_accuracy or train_accuracy:
@@ -455,7 +461,7 @@ def log_metrics(
         log_file.write("Epoch\tTrain Loss\tTrain Accuracy\tValidation Accuracy\n")
         for idx, elem in enumerate(total_elemets):
             log_file.write(
-                f"{date[idx]}\t,{idx}\t,{train_loss[idx]:.4f},\t{train_accuracy[idx]:.4f},\t{val_accuracy[idx]:.4f}\n"
+                f"{date[idx]}\t,{idx}\t,{train_total_loss[idx]:.4f},\t{train_accuracy[idx]:.4f},\t{val_accuracy[idx]:.4f}\n"
             )
     # Create the plot
     if plot_file_path is None and plot_save:

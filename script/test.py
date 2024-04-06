@@ -118,7 +118,7 @@ def arg_parse():
     parser.set_defaults(
         treshold_adj=[0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5],
         treshold_diag=[0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5],
-        batch_size=5000,
+        batch_size=1000,
         num_examples=20000,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     )
@@ -195,7 +195,7 @@ def treshold_search(
                 edges_true,
             ]
 
-            nome_file = os.path.join(folder_base, "test_result_20mila_1.csv")
+            nome_file = os.path.join(folder_base, "test_result_20mila.csv")
             write_csv(nome_file, header, results)
 
 
@@ -282,17 +282,19 @@ if __name__ == "__main__":
     device = args_parsed.device
 
     folder_base = "models"
-    experiment_model_vae_name = "logs_GraphVAE_30000"
+    graph_vae_num_samples = 6000
+    diffusion_num_samples = 20000
+    experiment_model_vae_name = f"logs_GraphVAE_v2_{graph_vae_num_samples}"
 
-    experiment_model_diffusion_name = "logs_Diffusion_100000"
+    experiment_model_diffusion_name = f"logs_Diffusion_{diffusion_num_samples}_from_{graph_vae_num_samples}"
 
     model_folder_vae_base = os.path.join(folder_base, experiment_model_vae_name)
     model_folder_diff_base = os.path.join(folder_base, experiment_model_diffusion_name)
 
     model_vae, hyperparams = load_GraphVAE(model_folder=model_folder_vae_base, device=device)
 
-    # model_diffusion = load_Diffusion(model_folder_diff_base, device=device)
-    model_diffusion = None
+    model_diffusion = load_Diffusion(model_folder_diff_base, device=device)
+    # model_diffusion = None
 
     # LOAD DATASET QM9:
     (

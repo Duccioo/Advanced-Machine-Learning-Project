@@ -216,7 +216,7 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 - (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
 
-# Problemi dagli esperimenti:
+## Problemi dagli esperimenti:
 
 - La novelty risulta troppo bassa:
   - Overfitting dei dati nel graphvae
@@ -224,10 +224,12 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
     - Problema durante la generazione di molecole
     - Problema nel training
 
-# meeting: 4/04
+## meeting: 4/04
 
 - stampare le loss separate e vedere dove va
   - plotting della loss sia sul training che nel validation
 - allenare con 2 distinti loss, prendere l'optimization solo sui parametri (quando istanzio l'optimization separo i 2 parametri)
 
-- nel diffusion abbassare il learning_rate a 1e-5
+- [x] nel diffusion abbassare il learning_rate a 1e-5
+  - risultato:
+- [x] aggiunto un peso alla kl divergence loss, sperando di migliorare l'addestramento del decoder

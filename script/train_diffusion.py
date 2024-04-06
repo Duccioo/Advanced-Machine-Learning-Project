@@ -48,17 +48,15 @@ def forward_diffusion_sample(x_0, t, device="cpu"):
     """
     noise = torch.randn_like(x_0)
     sqrt_alphas_cumprod_t = get_index_from_list(sqrt_alphas_cumprod, t, x_0.shape)
-    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
-        sqrt_one_minus_alphas_cumprod, t, x_0.shape
-    )
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(sqrt_one_minus_alphas_cumprod, t, x_0.shape)
     # mean + variance
     # print("Forward Diffusion Sampling:")
     # print(x_0.shape)
     # print(sqrt_alphas_cumprod_t.shape)
 
-    return sqrt_alphas_cumprod_t.to(device) * x_0.to(
+    return sqrt_alphas_cumprod_t.to(device) * x_0.to(device) + sqrt_one_minus_alphas_cumprod_t.to(
         device
-    ) + sqrt_one_minus_alphas_cumprod_t.to(device) * noise.to(device), noise.to(device)
+    ) * noise.to(device), noise.to(device)
 
 
 # Define beta schedule
@@ -89,15 +87,11 @@ def sample_timestep(x, t, model):
     Applies noise to this image, if we are not in the last step yet.
     """
     betas_t = get_index_from_list(betas, t, x.shape)
-    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(
-        sqrt_one_minus_alphas_cumprod, t, x.shape
-    )
+    sqrt_one_minus_alphas_cumprod_t = get_index_from_list(sqrt_one_minus_alphas_cumprod, t, x.shape)
     sqrt_recip_alphas_t = get_index_from_list(sqrt_recip_alphas, t, x.shape)
 
     # Call model (current image - noise prediction)
-    model_mean = sqrt_recip_alphas_t * (
-        x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t
-    )
+    model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
     posterior_variance_t = get_index_from_list(posterior_variance, t, x.shape)
 
     if t == 0:
@@ -186,15 +180,9 @@ def validation(
             desc="Validation",
         )
         for batch_val in p_bar_val:
-            z = torch.rand(
-                len(batch_val["smiles"]), hyperparams["latent_dimension"]
-            ).to(device)
-            z = sample_timestep(
-                z, torch.tensor([0], device=device), model_diffusion
-            ).to(device)
-            (recon_adj, recon_node, recon_edge, n_one) = model_vae.generate(
-                z, treshold_adj, treshold_diag
-            )
+            z = torch.rand(len(batch_val["smiles"]), hyperparams["latent_dimension"]).to(device)
+            z = sample_timestep(z, torch.tensor([0], device=device), model_diffusion).to(device)
+            (recon_adj, recon_node, recon_edge, n_one) = model_vae.generate(z, treshold_adj, treshold_diag)
             for index_val, elem in enumerate(batch_val["smiles"]):
                 if n_one[index_val] == 0:
                     mol = None
@@ -264,14 +252,10 @@ def train(
         running_loss = 0.0
 
         # BATCH FOR LOOP
-        for i, data in tqdm(
-            enumerate(train_loader), total=len(train_loader), position=1, leave=False
-        ):
+        for i, data in tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=False):
             optimizer.zero_grad()
 
-            t = torch.randint(
-                0, T, (len(data["features_nodes"]),), device=device
-            ).long()
+            t = torch.randint(0, T, (len(data["features_nodes"]),), device=device).long()
             # print(data["smiles"][0])
             features_nodes = data["features_nodes"].float().to(device)
             graph_h = features_nodes.reshape(
@@ -298,7 +282,7 @@ def train(
         validation_saved.append([validity_percentage] * len(train_loader))
 
         p_bar_epoch.write(
-            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {validity_percentage:.2f}%"
+            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Validity: {validity_percentage:.2f}%"
         )
         p_bar_epoch.write("Saving checkpoint...")
         if epoch % 5 == 0 and epoch != 0:
@@ -322,7 +306,7 @@ def train(
     log_metrics(
         epochs,
         total_batch=len(train_loader),
-        train_loss=train_loss,
+        train_total_loss=train_loss,
         val_accuracy=validation_accuracy,
         date=train_date,
         title="Training Loss",
@@ -337,10 +321,10 @@ if __name__ == "__main__":
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    BATCH_SIZE = 64
-    NUM_EXAMPLES = 100000
-    epochs = 50 
-    learning_rate = 0.01
+    BATCH_SIZE = 128
+    NUM_EXAMPLES = 20000
+    epochs = 100
+    learning_rate = 0.00001
     train_percentage = 0.7
     test_percentage = 0.0
     val_percentage = 0.3
@@ -350,15 +334,16 @@ if __name__ == "__main__":
 
     experiment_model_type = "Diffusion"
     model_folder = "models"
+    graph_vae_samples = 6000
+    graph_vae_folder_name = f"logs_GraphVAE_V2_{str(graph_vae_samples)}"
+
     experiment_folder = os.path.join(
-        model_folder, "logs_Diffusion_" + str(NUM_EXAMPLES)
+        model_folder, "logs_Diffusion_" + str(NUM_EXAMPLES) + "_from_" + str(graph_vae_samples)
     )
 
-    folder_GraphVAE = os.path.join(model_folder, "logs_GraphVAE_130")
+    folder_GraphVAE = os.path.join(model_folder, graph_vae_folder_name)
 
-    decoder, encoder, hyperparams = load_GraphVAE(
-        model_folder=folder_GraphVAE, device=device
-    )
+    decoder, encoder, hyperparams = load_GraphVAE(model_folder=folder_GraphVAE, device=device)
     hyperparams["down_channel"] = down_channel
     hyperparams["time_emb_dim"] = time_emb_dim
 
@@ -387,9 +372,7 @@ if __name__ == "__main__":
         dataset_split_list=(train_percentage, test_percentage, val_percentage),
     )
 
-    training_effective_size = (
-        len(train_dataset_loader) * train_dataset_loader.batch_size
-    )
+    training_effective_size = len(train_dataset_loader) * train_dataset_loader.batch_size
     validation_effective_size = len(val_dataset_loader) * val_dataset_loader.batch_size
 
     dataset__hyper_params = []
@@ -409,9 +392,7 @@ if __name__ == "__main__":
 
     summary = Summary(experiment_folder, experiment_model_type)
     summary.save_model_json(hyperparams)
-    summary.save_summary_training(
-        dataset__hyper_params, hyperparams, random.choice(dataset_pad)
-    )
+    summary.save_summary_training(dataset__hyper_params, hyperparams, random.choice(dataset_pad))
 
     # -- TRAINING -- :
     print("\nStart training...")

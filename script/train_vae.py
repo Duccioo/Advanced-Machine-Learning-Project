@@ -79,6 +79,7 @@ def train(
     running_steps = 0
     val_accuracy = 0
     train_date_loss = []
+    train_list_losses = []
     validation_saved = []
 
     # Checkpoint load
@@ -108,14 +109,12 @@ def train(
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
 
-            # model.zero_grad()
-
             adj_vec, mu, var, node_recon, edge_recon = model(features_nodes)
 
-            loss = model.loss(
+            loss, adj_recon_loss, loss_kl, loss_edge, loss_node = model.loss(
                 adj_input, adj_vec, features_nodes, node_recon, features_edges, edge_recon, mu, var
             )
-            
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -125,6 +124,9 @@ def train(
             running_steps += 1
 
             train_date_loss.append((datetime.now(), loss.item()))
+            train_list_losses.append(
+                [loss.item(), adj_recon_loss.item(), loss_kl.item(), loss_edge.item(), loss_node.item()]
+            )
 
         # Validation each epoch:
         validity_percentage = validation(model, val_loader, device, 0.3, 0.2)
@@ -151,12 +153,27 @@ def train(
 
     train_loss = [x[1] for x in train_date_loss]
     train_date = [x[0] for x in train_date_loss]
+
+    train_adj_recon_loss = [x[1] for x in train_list_losses]
+    train_kl_loss = [x[2] for x in train_list_losses]
+    train_edge_loss = [x[3] for x in train_list_losses]
+    train_node_loss = [x[4] for x in train_list_losses]
+
+    train_dict_losses = {
+        "train_total_loss": train_loss,
+        "train_adj_recon_loss": train_adj_recon_loss,
+        "train_kl_loss": train_kl_loss,
+        "train_edge_loss": train_edge_loss,
+        "train_node_loss": train_node_loss,
+    }
+
     validation_accuracy = sum(validation_saved, [])
 
     log_metrics(
         epochs,
         total_batch=len(train_loader),
-        train_loss=train_loss,
+        train_total_loss=train_loss,
+        train_dict_losses=train_dict_losses,
         val_accuracy=validation_accuracy,
         date=train_date,
         title="Training Loss",
@@ -210,9 +227,9 @@ def arg_parse():
         dataset__batch_size=15,
         dataset__num_workers=1,
         dataset__max_num_nodes=9,
-        dataset__num_examples=7500,
+        dataset__num_examples=6000,
         model__latent_dimension=9,
-        training__epochs=8,
+        training__epochs=5,
         dataset__train_percentage=0.7,
         dataset__test_percentage=0.0,
         dataset__val_percentage=0.3,
@@ -231,7 +248,7 @@ def main():
 
     experiment_model_type = "GRAPH VAE"
     model_folder = "models"
-    experiment_folder = os.path.join(model_folder, "logs_GraphVAE_" + str(prog_args.dataset__num_examples))
+    experiment_folder = os.path.join(model_folder, "logs_GraphVAE_v2_" + str(prog_args.dataset__num_examples))
 
     # loading dataset
     max_num_nodes = prog_args.dataset__max_num_nodes
