@@ -151,6 +151,7 @@ def treshold_search(
     latent_dimension,
     device,
     folder_base,
+    test_samples: int = 1000,
 ):
     header = [
         "Treshold ADJ",
@@ -195,8 +196,10 @@ def treshold_search(
                 edges_true,
             ]
 
-            nome_file = os.path.join(folder_base, "test_result_20mila.csv")
-            write_csv(nome_file, header, results)
+            nome_file = f"test_result_{test_samples}.csv"
+
+            nome_file_path = os.path.join(folder_base, "test_result_20mila.csv")
+            write_csv(nome_file_path, header, results)
 
 
 def load_GraphVAE(model_folder: str = "", device="cpu"):
@@ -277,7 +280,7 @@ if __name__ == "__main__":
     args_parsed = arg_parse()
 
     # loading dataset
-    num_examples = args_parsed.num_examples
+    # num_examples = args_parsed.num_examples
     batch_size = args_parsed.batch_size
     device = args_parsed.device
 
@@ -285,7 +288,6 @@ if __name__ == "__main__":
     graph_vae_num_samples = 6000
     diffusion_num_samples = 20000
     experiment_model_vae_name = f"logs_GraphVAE_v2_{graph_vae_num_samples}"
-
     experiment_model_diffusion_name = f"logs_Diffusion_{diffusion_num_samples}_from_{graph_vae_num_samples}"
 
     model_folder_vae_base = os.path.join(folder_base, experiment_model_vae_name)
@@ -295,6 +297,12 @@ if __name__ == "__main__":
 
     model_diffusion = load_Diffusion(model_folder_diff_base, device=device)
     # model_diffusion = None
+
+    # setto il numero di esempi su cui fare il test tanti quanti sono gli elementi del training
+    if model_diffusion is not None:
+        num_examples = diffusion_num_samples
+    else:
+        num_examples = graph_vae_num_samples
 
     # LOAD DATASET QM9:
     (
@@ -331,4 +339,5 @@ if __name__ == "__main__":
         latent_dimension=hyperparams["latent_dimension"],
         device=device,
         folder_base=(model_folder_vae_base if model_diffusion is None else model_folder_diff_base),
+        test_samples=num_examples,
     )

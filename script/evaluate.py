@@ -8,12 +8,8 @@ def calc_metrics(
     smiles_predicted: list = ["CCO", "CCN", "CCC", "CCF"],
 ):
     validity_smiles = [calculate_validity(mol) for mol in smiles_predicted]
-
+    print("Molecole valide e uniche:")
     print(list(set(validity_smiles)))
-    print(
-        "Molecole diverse sia valide che non valide in predizione:",
-        len(list(set(smiles_predicted))) / len(smiles_predicted),
-    )
     validity_percentage = sum(1.0 for elemento in validity_smiles if elemento is not False) / len(
         smiles_predicted
     )
