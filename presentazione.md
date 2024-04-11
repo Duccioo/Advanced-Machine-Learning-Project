@@ -1,7 +1,7 @@
 ## Capitoli
 
-- Introduzione Vae
-- Introduzione Latent Diffusion
+- Introduzione Vae e graphVAE
+- Introduzione Diffusion e Latent Diffusion
 - Dataset
 
   - preprocess del dataset:
@@ -15,7 +15,8 @@
   5000 esempi
   10000 esempi
 
-  - tutti gli esperiementi fatti con 0.01 di learning_rate e solito modello
+  <!-- - tutti gli esperiementi fatti con 0.01 di learning_rate e solito modello -->
+
   - Sia con GraphVAE che con Latent Diffusion
   - Per il latent diffusion viene preso il modello allenato dal GraphVAE
 
@@ -28,4 +29,7 @@
 
 - Training Latent Diffusion
 
-- risultati
+- risultati:
+  ... 
+  Da vedersi:
+    - per adesso sembra che il diffusion faccia peggio (novelty inferiore) rispetto al vae, probabilmente entra un po' in overfitting

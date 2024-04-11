@@ -77,8 +77,6 @@ def train(
     checkpoint = None
     steps_saved = 0
     running_steps = 0
-    val_accuracy = 0
-    train_date_loss = []
     train_list_losses = []
     validation_saved = []
 
@@ -91,7 +89,7 @@ def train(
         data_saved = load_from_checkpoint(checkpoint, model, optimizer, scheduler)
         steps_saved = data_saved["step"]
         epochs_saved = data_saved["epoch"]
-        train_date_loss = data_saved["loss"]
+        train_list_losses = data_saved["loss"]
         validation_saved = data_saved["other"]
         print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
 
@@ -102,9 +100,10 @@ def train(
 
         model.train()
         running_loss = 0.0
+        p_bar_batch = tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=False)
 
         # BATCH FOR LOOP
-        for i, data in tqdm(enumerate(train_loader), total=len(train_loader), position=1, leave=False):
+        for i, data in p_bar_batch:
             features_nodes = data["features_nodes"].float().to(device)
             features_edges = data["features_edges"].float().to(device)
             adj_input = data["adj"].float().to(device)
@@ -123,18 +122,24 @@ def train(
             running_loss += loss.item()
             running_steps += 1
 
-            train_date_loss.append((datetime.now(), loss.item()))
             train_list_losses.append(
-                [loss.item(), adj_recon_loss.item(), loss_kl.item(), loss_edge.item(), loss_node.item()]
+                (
+                    datetime.now(),
+                    loss.item(),
+                    adj_recon_loss.item(),
+                    loss_kl.item(),
+                    loss_edge.item(),
+                    loss_node.item(),
+                )
             )
+            p_bar_batch.set_description(f"Loss: {loss.item():.4f}")
 
         # Validation each epoch:
         validity_percentage = validation(model, val_loader, device, 0.3, 0.2)
-        validation_saved.append([validity_percentage] * len(train_loader))
-        print(str(validity_percentage))
+        validation_saved.append(validity_percentage)
 
         p_bar_epoch.write(
-            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Accuracy: {val_accuracy:.2f}%"
+            f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Validity: {validity_percentage:.2f}%"
         )
         p_bar_epoch.write("Saving checkpoint...")
         save_checkpoint(
@@ -143,7 +148,7 @@ def train(
             model,
             running_steps,
             epoch + 1,
-            train_date_loss,
+            train_list_losses,
             optimizer,
             scheduler,
             other=validation_saved,
@@ -151,13 +156,12 @@ def train(
 
     print("logging")
 
-    train_loss = [x[1] for x in train_date_loss]
-    train_date = [x[0] for x in train_date_loss]
-
-    train_adj_recon_loss = [x[1] for x in train_list_losses]
-    train_kl_loss = [x[2] for x in train_list_losses]
-    train_edge_loss = [x[3] for x in train_list_losses]
-    train_node_loss = [x[4] for x in train_list_losses]
+    train_date = [x[0] for x in train_list_losses]
+    train_loss = [x[1] for x in train_list_losses]
+    train_adj_recon_loss = [x[2] for x in train_list_losses]
+    train_kl_loss = [x[3] for x in train_list_losses]
+    train_edge_loss = [x[4] for x in train_list_losses]
+    train_node_loss = [x[5] for x in train_list_losses]
 
     train_dict_losses = {
         "train_total_loss": train_loss,
@@ -167,14 +171,12 @@ def train(
         "train_node_loss": train_node_loss,
     }
 
-    validation_accuracy = sum(validation_saved, [])
-
     log_metrics(
         epochs,
         total_batch=len(train_loader),
-        train_total_loss=train_loss,
+        train_total_loss=train_dict_losses["train_total_loss"],
         train_dict_losses=train_dict_losses,
-        val_accuracy=validation_accuracy,
+        val_accuracy=validation_saved,
         date=train_date,
         title="Training Loss",
         plot_save=True,
@@ -224,12 +226,12 @@ def arg_parse():
 
     parser.set_defaults(
         training__lr=0.001,
-        dataset__batch_size=15,
+        dataset__batch_size=10,
         dataset__num_workers=1,
         dataset__max_num_nodes=9,
-        dataset__num_examples=6000,
+        dataset__num_examples=10000,
         model__latent_dimension=9,
-        training__epochs=5,
+        training__epochs=8,
         dataset__train_percentage=0.7,
         dataset__test_percentage=0.0,
         dataset__val_percentage=0.3,

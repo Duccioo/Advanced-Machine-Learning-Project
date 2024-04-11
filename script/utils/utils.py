@@ -1,8 +1,8 @@
 import os
-import random
 import matplotlib.pyplot as plt
 import numpy as np
 import hashlib
+import inspect
 
 
 import torch
@@ -50,16 +50,33 @@ def set_seed(seed: int = 42) -> None:
 
 def check_base_dir(*args):
     """
-    A function to check and create a directory based on the given arguments.
+    Given a variable number of arguments, this function constructs a full path by joining the absolute path of the current file with the provided arguments.
 
-    Parameters:
-    *args: variable number of arguments representing the path components
+    Args:
+        *args: Variable number of arguments representing the path segments. Each argument can be a string or a list of strings. If an argument is a list, it is joined with the previous path segment using os.path.join.
 
     Returns:
-    str: the full path after checking and creating the directory
+        str: The full path constructed by joining the absolute path of the current file with the provided arguments.
+
+    Raises:
+        None
+
+    Examples:
+        >>> check_base_dir("folder1", "folder2")
+        '/path/to/current/file/folder1/folder2'
+
+        >>> check_base_dir(["folder1", "folder2"], "folder3")
+        '/path/to/current/file/folder1/folder2/folder3'
     """
+
     # take the full path of the folder
-    absolute_path = os.path.dirname(__file__)
+    # absolute_path = os.path.dirname(__file__)
+
+    caller_frame = inspect.currentframe().f_back
+    caller_filename = inspect.getframeinfo(caller_frame).filename
+    current_file_path = os.path.abspath(caller_filename)
+    absolute_path = os.path.dirname(current_file_path)
+    # print("AHHHHHH", absolute_path)
 
     full_path = absolute_path
     # args = [item for sublist in args for item in sublist]
@@ -77,10 +94,9 @@ def check_base_dir(*args):
 
         else:
             full_path = os.path.join(full_path, path)
-
+        # print("------_::", full_path)
         # check the path exists
         if not os.path.exists(full_path):
-            # if doesn't, create it:
             os.makedirs(full_path)
 
     return full_path
@@ -371,7 +387,7 @@ def log_metrics(
     total_batch: int = None,
     log_file_path: str = None,
     plot_file_path: str = None,
-    metric_name: str = "Accuracy",
+    metric_name: str = "Validity",
     title: str = "Training and Validation Metrics",
     plot_show: bool = False,
     plot_save: bool = False,
@@ -397,6 +413,7 @@ def log_metrics(
 
     # plt.figure(figsize=(10, 6))
     plt.figure()
+    freq_ticks = 5  # num of epoch to draw ticks
 
     if total_batch:
 
@@ -409,15 +426,18 @@ def log_metrics(
         for epoca in range(1, epochs + 2):
             batch_inizio_epoca = (epoca - 1) * total_batch
 
+            # if epoca % freq_ticks == 0 or epoca == 1:
             plt.axvline(x=batch_inizio_epoca, color="red", linestyle="--", alpha=0.3)
-            list_batch_epoch.append(batch_inizio_epoca)
+            if (epoca - 1) % freq_ticks == 0:
+                list_batch_epoch.append(batch_inizio_epoca)
 
-        plt.xticks(list_batch_epoch, [f"{epoca}" for epoca in range(0, epochs + 1)])
+        plt.xticks(list_batch_epoch, [f"{epoca}" for epoca in range(0, epochs + 1, freq_ticks)])
 
     else:
         total_elemets = np.arange(1, epochs + 1)
 
-    plt.plot(total_elemets, train_total_loss, label="Train Loss", marker="o")
+    plt.plot(total_elemets, train_total_loss, label="Train Loss")
+
     if train_dict_losses is not None:
         plt.plot(total_elemets, train_dict_losses["train_adj_recon_loss"], label="ADJ recon Loss")
         plt.plot(total_elemets, train_dict_losses["train_kl_loss"], label="KL Loss")
@@ -443,8 +463,12 @@ def log_metrics(
     if not val_accuracy:
         val_accuracy = [0] * len(total_elemets)
     else:
+        x_val: list = [
+            (epochs / len(val_accuracy) * (idx + 1)) * total_batch for idx in range(len(val_accuracy))
+        ]
+        
         plt.plot(
-            total_elemets,
+            x_val,
             val_accuracy,
             label=f"Validation {metric_name}",
             marker="^",
@@ -461,7 +485,7 @@ def log_metrics(
         log_file.write("Epoch\tTrain Loss\tTrain Accuracy\tValidation Accuracy\n")
         for idx, elem in enumerate(total_elemets):
             log_file.write(
-                f"{date[idx]}\t,{idx}\t,{train_total_loss[idx]:.4f},\t{train_accuracy[idx]:.4f},\t{val_accuracy[idx]:.4f}\n"
+                f"{date[idx]}\t,{idx}\t,{train_total_loss[idx]:.4f},\t{train_accuracy[idx]:.4f},\t{val_accuracy[idx%len(val_accuracy)]:.4f}\n"
             )
     # Create the plot
     if plot_file_path is None and plot_save:

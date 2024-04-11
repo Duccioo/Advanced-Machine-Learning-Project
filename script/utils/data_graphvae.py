@@ -1,7 +1,7 @@
 import os
 import networkx as nx
 import numpy as np
-
+import random
 import torch
 from torch.utils.data import random_split
 
@@ -297,11 +297,12 @@ def load_QM9(
     num_graphs_raw = len(dataset)
     print("Number of graphs raw: ", num_graphs_raw)
 
-    dataset = dataset[0:num_examples]
-    print("Number of graphs: ", len(dataset))
-
     # Filtra i grafi con un numero di nodi maggiore di max_num_nodes
     dataset = [data for data in dataset if data.num_nodes <= max_num_nodes]
+
+    # casualmente prendo un certo numero di grafi dal dataset:
+    dataset = random.sample(dataset, num_examples)
+    print("Number of graphs: ", len(dataset))
 
     max_num_nodes_dataset = max([dataset[i].num_nodes for i in range(len(dataset))])
 

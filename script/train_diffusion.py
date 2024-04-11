@@ -226,9 +226,11 @@ def train(
     checkpoint = None
     steps_saved = 0
     running_steps = 0
-    val_accuracy = 0
-    train_date_loss = []
+    train_list_losses = []
     validation_saved = []
+    val_treshold_adj = 0.3
+    val_treshold_diag = 0.2
+    validity_percentage = 0.0
 
     # Checkpoint load
     if os.path.isdir(checkpoints_dir):
@@ -239,7 +241,7 @@ def train(
         data_saved = load_from_checkpoint(checkpoint, model, optimizer)
         steps_saved = data_saved["step"]
         epochs_saved = data_saved["epoch"]
-        train_date_loss = data_saved["loss"]
+        train_list_losses = data_saved["loss"]
         validation_saved = data_saved["other"]
         print(f"start from checkpoint at step {steps_saved} and epoch {epochs_saved}")
 
@@ -256,15 +258,12 @@ def train(
             optimizer.zero_grad()
 
             t = torch.randint(0, T, (len(data["features_nodes"]),), device=device).long()
-            # print(data["smiles"][0])
+
             features_nodes = data["features_nodes"].float().to(device)
             graph_h = features_nodes.reshape(
                 -1, hyperparams["max_num_nodes"] * hyperparams["num_nodes_features"]
             )
-            # features_edges = batch["features_edges"].float().to(device)
-            # adj_input = batch["adj"].float().to(device)
-            # print(graph_h.shape)
-            # print(features_nodes.shape)
+
             batch_latent, _, _ = encoder(graph_h)
             loss = get_loss(model_diffusion, batch_latent, t)
             loss.backward()
@@ -273,41 +272,51 @@ def train(
             running_loss += loss.item()
             running_steps += 1
 
-            train_date_loss.append((datetime.now(), loss.item()))
-
-        # Validation each epoch:
-        validity_percentage = validation(
-            model_diffusion, model_vae, hyperparams, val_loader, device, 0.3, 0.2
-        )
-        validation_saved.append([validity_percentage] * len(train_loader))
+            train_list_losses.append((datetime.now(), loss.item()))
 
         p_bar_epoch.write(
             f"Epoch {epoch+1} - Loss: {running_loss / len(train_loader):.4f}, Validation Validity: {validity_percentage:.2f}%"
         )
-        p_bar_epoch.write("Saving checkpoint...")
-        if epoch % 5 == 0 and epoch != 0:
+
+        if (epoch + 1) % 5 == 0 and epoch != 0:
+            p_bar_epoch.write("Saving checkpoint...")
             save_checkpoint(
                 checkpoints_dir,
-                f"checkpoint_{epoch+1}",
+                f"checkpoint_{epoch}",
                 model,
                 running_steps,
-                epoch + 1,
-                train_date_loss,
+                epoch,
+                train_list_losses,
                 optimizer,
                 other=validation_saved,
             )
+            # Validation each 5 epoch:
+            validity_percentage = validation(
+                model_diffusion,
+                model_vae,
+                hyperparams,
+                val_loader,
+                device,
+                val_treshold_adj,
+                val_treshold_diag,
+            )
+            validation_saved.append(validity_percentage)
 
     print("logging")
 
-    train_loss = [x[1] for x in train_date_loss]
-    train_date = [x[0] for x in train_date_loss]
-    validation_accuracy = sum(validation_saved, [])
+    train_date = [x[0] for x in train_list_losses]
+    train_loss = [x[1] for x in train_list_losses]
+
+    train_dict_losses = {"train_total_loss": train_loss}
+
+    print(validation_saved)
+
 
     log_metrics(
         epochs,
         total_batch=len(train_loader),
-        train_total_loss=train_loss,
-        val_accuracy=validation_accuracy,
+        train_total_loss=train_dict_losses["train_total_loss"],
+        val_accuracy=validation_saved,
         date=train_date,
         title="Training Loss",
         plot_save=True,
@@ -322,9 +331,9 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     BATCH_SIZE = 128
-    NUM_EXAMPLES = 20000
-    epochs = 100
-    learning_rate = 0.00001
+    NUM_EXAMPLES = 50000
+    epochs = 150
+    learning_rate = 0.000005
     train_percentage = 0.7
     test_percentage = 0.0
     val_percentage = 0.3
@@ -334,7 +343,7 @@ if __name__ == "__main__":
 
     experiment_model_type = "Diffusion"
     model_folder = "models"
-    graph_vae_samples = 6000
+    graph_vae_samples = 5000
     graph_vae_folder_name = f"logs_GraphVAE_V2_{str(graph_vae_samples)}"
 
     experiment_folder = os.path.join(

@@ -198,7 +198,7 @@ def treshold_search(
 
             nome_file = f"test_result_{test_samples}.csv"
 
-            nome_file_path = os.path.join(folder_base, "test_result_20mila.csv")
+            nome_file_path = os.path.join(folder_base, nome_file)
             write_csv(nome_file_path, header, results)
 
 
@@ -285,8 +285,8 @@ if __name__ == "__main__":
     device = args_parsed.device
 
     folder_base = "models"
-    graph_vae_num_samples = 6000
-    diffusion_num_samples = 20000
+    graph_vae_num_samples = 5000
+    diffusion_num_samples = 50000
     experiment_model_vae_name = f"logs_GraphVAE_v2_{graph_vae_num_samples}"
     experiment_model_diffusion_name = f"logs_Diffusion_{diffusion_num_samples}_from_{graph_vae_num_samples}"
 
