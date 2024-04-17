@@ -330,7 +330,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     BATCH_SIZE = 128
-    NUM_EXAMPLES = 5000
+    NUM_EXAMPLES = 1000
     epochs = 150
     learning_rate = 0.00001
     train_percentage = 0.7
@@ -342,11 +342,12 @@ if __name__ == "__main__":
 
     experiment_model_type = "Diffusion"
     model_folder = "models"
-    graph_vae_samples = 5000
-    graph_vae_folder_name = f"logs_GraphVAE_V2_{str(graph_vae_samples)}"
+    graph_vae_samples = 1000
+    version = "v3"
+    graph_vae_folder_name = f"logs_GraphVAE_{version}_{str(graph_vae_samples)}"
 
     experiment_folder = os.path.join(
-        model_folder, "logs_Diffusion_" + str(NUM_EXAMPLES) + "_from_" + str(graph_vae_samples)
+        model_folder, f"logs_Diffusion_{version}_" + str(NUM_EXAMPLES) + "_from_" + str(graph_vae_samples)
     )
 
     folder_GraphVAE = os.path.join(model_folder, graph_vae_folder_name)

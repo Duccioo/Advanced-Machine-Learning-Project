@@ -229,7 +229,7 @@ def arg_parse():
         dataset__batch_size=10,
         dataset__num_workers=1,
         dataset__max_num_nodes=9,
-        dataset__num_examples=10000,
+        dataset__num_examples=1000,
         model__latent_dimension=9,
         training__epochs=8,
         dataset__train_percentage=0.7,
@@ -250,7 +250,10 @@ def main():
 
     experiment_model_type = "GRAPH VAE"
     model_folder = "models"
-    experiment_folder = os.path.join(model_folder, "logs_GraphVAE_v2_" + str(prog_args.dataset__num_examples))
+    version = "v3"
+    experiment_folder = os.path.join(
+        model_folder, f"logs_GraphVAE_{version}_" + str(prog_args.dataset__num_examples)
+    )
 
     # loading dataset
     max_num_nodes = prog_args.dataset__max_num_nodes

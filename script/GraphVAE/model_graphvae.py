@@ -350,7 +350,8 @@ class GraphVAE(nn.Module):
         loss_edge = F.mse_loss(edges_recon_features_total, edges_true)
         loss_node = F.mse_loss(node_recon, node_true)
 
-        loss = adj_recon_loss + 0.5 * loss_kl + loss_edge + loss_node
+        penalization_term = 1
+        loss = adj_recon_loss + penalization_term * loss_kl + loss_edge + loss_node
 
         return loss, adj_recon_loss, loss_kl, loss_edge, loss_node
 

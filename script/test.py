@@ -287,10 +287,13 @@ if __name__ == "__main__":
     device = args_parsed.device
 
     folder_base = "models"
-    graph_vae_num_samples = 5000
-    diffusion_num_samples = 5000
-    experiment_model_vae_name = f"logs_GraphVAE_v2_{graph_vae_num_samples}"
-    experiment_model_diffusion_name = f"logs_Diffusion_{diffusion_num_samples}_from_{graph_vae_num_samples}"
+    graph_vae_num_samples = 1000
+    diffusion_num_samples = 1000
+    version = "v3"
+    experiment_model_vae_name = f"logs_GraphVAE_{version}_{graph_vae_num_samples}"
+    experiment_model_diffusion_name = (
+        f"logs_Diffusion_{version}_{diffusion_num_samples}_from_{graph_vae_num_samples}"
+    )
 
     model_folder_vae_base = os.path.join(folder_base, experiment_model_vae_name)
     model_folder_diff_base = os.path.join(folder_base, experiment_model_diffusion_name)
