@@ -50,8 +50,8 @@ def validation(model: GraphVAE, val_loader, device, treshold_adj: float = 0.5, t
                 smiles_pred.append(smile)
                 smiles_true.append(elem)
 
-        validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
-        return validity_percentage
+        _, validity, _, _ = calc_metrics(smiles_true, smiles_pred)
+        return validity
 
 
 def train(

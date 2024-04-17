@@ -1,8 +1,8 @@
 # Advanced-Machine-Learning-Project
 
 > Progetto che consisterebbe nel realizzare una versione dei diffusion model che usa lo spazio latente.
-> In pratica si trattrebbe di generare una rappresentare latente di un grafo, ad esempio usando graphVAE. Poi potremo provare a generare tale rappresentazione
-> con un metodo a diffusione. Essendo lo stato latente un semplice vettore, la sua generazione è più semplice, ma il fatto che si debba comporre due metodi da vita ad una cosa >un pò più complicata.
+> In pratica si trattrebbe di generare una rappresentare latente di un grafo, ad esempio usando graphVAE. Poi potremo provare a generare tale rappresentazione con un metodo a diffusione.
+> Essendo lo stato latente un semplice vettore, la sua generazione è più semplice, ma il fatto che si debba comporre due metodi da vita ad una cosa un pò più complicata.
 
 ## Models
 
@@ -72,14 +72,14 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
      </details>
 
-3) Le features dei edge vanno inserite dentro il modello?
+3. Le features dei edge vanno inserite dentro il modello?
     <details>
 
    > Le edge features sono una delle matrici da passare in input al modello: il DataLoader di QM9, una volta integrato nel codice, dovrebbe automaticamente passarle al modello quando si chiama la funzione "train". Se i tipi di archi definiti da Enzymes e da QM9 non sono uguali (come sospetto), ci sta che vada aggiustato un parametro nel codice del modello per far funzionare GraphVAE sulla matrice di QM9.
 
     </details>
 
-4) Ci siamo accorti, infine, che analizzando il dataset QM9 c'è qualcosa che non torna.
+4. Ci siamo accorti, infine, che analizzando il dataset QM9 c'è qualcosa che non torna.
    Un esempio è la molecola numero 23 denominata "gdb_24" con una ground truth smiles = [H]CC#C[NH3+].
    Se noi ci calcoliamo in base alle matrici e alle features presenti nella molecola 23 otteniamo uno smiles = [H]CC#CN.
 
@@ -95,21 +95,21 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
 5. come faccio a far sì che la matrice adiacente e la matrice dei legami degli atomi siano correttamente matchate
 
-6)  Per ottenere la generazione del vettore delle features dei nodi sia corretto aggiungere degli strati in più nel decoder della rete perchè di default il modello restituisce solo la matrice adiacente.
-     <details>
+6. Per ottenere la generazione del vettore delle features dei nodi sia corretto aggiungere degli strati in più nel decoder della rete perchè di default il modello restituisce solo la matrice adiacente.
+    <details>
 
-    > Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
+   > Per quanto riguarda invece l'output, l'idea di aggiungere una parte che generi le features dei nodi mi sembra ottima. Potreste aggiungere un modulo anche piccolo che restituisca i vettori one-hot tramite softmax. Se poi il softmax non dovesse funzionare o dovesse comportarsi in modo troppo ripetitivo, potremo sostituirlo con un layer particolare che ha un'uscita stocastica (gumbel softmax).
 
-     </details>
+    </details>
 
-7)  non siamo ancora sicuri di come aggiungere le features degli edges, avevamo pensato prima di tutto a concatenare direttamente le features degli edges a quelle dei nodi poi abbiamo pensato di modificare la matrice di adiacenza aggiungendo le features degli edges in modo da ottenere un tensore 3d dove ad ogni edge corrisponde la codifica one-hot del legame della molecola.
-     <details>
+7. non siamo ancora sicuri di come aggiungere le features degli edges, avevamo pensato prima di tutto a concatenare direttamente le features degli edges a quelle dei nodi poi abbiamo pensato di modificare la matrice di adiacenza aggiungendo le features degli edges in modo da ottenere un tensore 3d dove ad ogni edge corrisponde la codifica one-hot del legame della molecola.
+    <details>
 
-    > Ho controllato la repo, e devo dire che la gestione delle features degli archi c'è, ma è effettivamente un po' intricata: viene definita una matrice "s" (non esattamente un nome esplicativo per una variabile) ottenuta cross-correlando le features degli archi tra di loro. La matrice "s" viene utilizzata dal metodo self.mpm(), che ripete alcune iterazioni di "message passing convoluzionale" tra i nodi del grafo. Questa procedura permette di incorporare le features degli archi all'interno delle "features rielaborate" in uscita dal processo di message passing, che vengono poi compresse nel vettore latente. Il message passing è quello descritto in questo articolo: https://arxiv.org/abs/1704.01212
+   > Ho controllato la repo, e devo dire che la gestione delle features degli archi c'è, ma è effettivamente un po' intricata: viene definita una matrice "s" (non esattamente un nome esplicativo per una variabile) ottenuta cross-correlando le features degli archi tra di loro. La matrice "s" viene utilizzata dal metodo self.mpm(), che ripete alcune iterazioni di "message passing convoluzionale" tra i nodi del grafo. Questa procedura permette di incorporare le features degli archi all'interno delle "features rielaborate" in uscita dal processo di message passing, che vengono poi compresse nel vettore latente. Il message passing è quello descritto in questo articolo: https://arxiv.org/abs/1704.01212
 
-    > Secondo me conviene mantenere il metodo così com'è, almeno per adesso.
+   > Secondo me conviene mantenere il metodo così com'è, almeno per adesso.
 
-     </details>
+    </details>
 
 8. Poi per quanto riguarda la loss abbiamo seguito il codice ovvero la somma della KL e la binary-cross-entropy tra la matrice adiacente vera e quella ricostruita dalla rete partendo dal vettore delle features dei nodi.
    E volevamo quindi sapere se era giusto lasciarla così oppure aggiungere un altro pezzo per considerare anche gli strati aggiunti in più nel decoder per ottenere il vettore di features dei nodi.
@@ -118,6 +118,24 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
    > problema risolto, usate 2 MSE loss una per la matrice delle features dei nodi e una per gli edges
 
      </details>
+
+9. Come implementare il Latent Diffusion:
+
+- Allenare prima il VAE, staccare e salvarsi l'encoder
+- magari usare rumore normalizzato
+
+- quale loss utilizzare? quella del diffusion model o quella del graphVAE?
+  <details>
+    vi avevo detto che vi avrei specificato meglio quale funzione errore va usata per addestrare la rete che fa la diffusione inversa sullo stato latente.
+    Ho ricontrollato è si può usare un'errore quadratico (differenza fra il rumore predetto e quello effettivo). Tra l'altro questo dettaglio era già nelle slide del corso e non me lo ricordavo. Per spiegarlo, vi riallego le slide,
+    L'algoritmo di addestramento è definito nella slide 14. Sostanzialmente è previsto che si prenda un immagine del dataset, un tempo t a caso
+    e si applichi un rumore che, pixel per pixel, dipende dal valore iniziale del pixel e da un epsilon che è generato da una distribuzione normale.
+    La formula da usare è quella di slide 8, dove gli alfa e i beta di t sono quelli definiti in slide 8 e slide 6.
+    Come vedete in slide 6 si spiega come si calcolano i beta: sostanzialmente dipendono da un alpha e un beta inziale che ci dicono quanto è il rumore all'inizio.
+    Poi i beta crescono (e di conseguenza il rumore) in maniera lineare rispetto a t. Sono stati provati altri andamenti (quadratico), ma io dire di usare quello di base lineare.
+    In pratica, voi dovete prendere un immagine e un t a caso e applicargli un rumore secondo formula a slide 8. Poi date l ímmagine rumorosa e il t in ingresso
+    alla rete che deve restituire il rumore. Calcolate il gradiente come un problema di regressione sul rumore.
+    </details>
 
 ## appunti e domande 19/02:
 
@@ -150,42 +168,21 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
 
   - [ ] quando creo lo smiles ha senso fare la Sanitizzazione della molecola prima di convertirla?
 
-  - [ ] Durante la generazione otteniamo valori della matrice adiancente molto bassi, tutti sotto 0.5.
+  - [x] Durante la generazione otteniamo valori della matrice adiancente molto bassi, tutti sotto 0.5.
+
     - quindi quando decidiamo se fare o meno un edge il valore con un round() semplice viene sempre 0 ovvero quel edge non viene preso
     - solito discorso sulla diagonale dove i valori sono ancor più piccoli, intorno a 0.10/0.20.
     - conviene diminuire la trashold?
 
-### Extra
+## meeting 04/04
 
-- [ ] Creare Grafi con Numero di nodi minore a quello massimo:
+- stampare le loss separate e vedere dove va
+  - plotting della loss sia sul training che nel validation
+- allenare con 2 distinti loss, prendere l'optimization solo sui parametri (quando istanzio l'optimization separo i 2 parametri)
 
-  1. Arrotondo con una soglia e mi vado a prendere solo quelli che sono diversi da 0
-
-     - oppure posso far sì che l'utente scelga il numero di atomi della molecola, creo un ciclo for che scorre una soglia e l'aumenta, quando ho 3 atomi mi fermo
-
-  2. Problema di coerenza: quale edge vado a scegliere? Se un edge è presente ma la features dei nodi è zero?
-
-- [ ] Problema di efficienza: il modello sopratutto con tanti elementi nei batch rallenta molto (soprattutto usando la GPU):
-
-  - problemi nello spostamento tra GPU e CPU dei dati
-  - alcune operazioni non sono parallelizzabili ( o forse si? )
-
-## Latent Diffusion
-
-- Allenare prima il VAE, staccare e salvarsi l'encoder
-- quale loss utilizzare? quella del diffusion model o quella del graphVAE?
-  <details>
-  vi avevo detto che vi avrei specificato meglio quale funzione errore va usata per addestrare la rete che fa la diffusione inversa sullo stato latente.
-  Ho ricontrollato è si può usare un'errore quadratico (differenza fra il rumore predetto e quello effettivo). Tra l'altro questo dettaglio era già nelle slide del corso e non me lo ricordavo. Per spiegarlo, vi riallego le slide,
-  L'algoritmo di addestramento è definito nella slide 14. Sostanzialmente è previsto che si prenda un immagine del dataset, un tempo t a caso
-  e si applichi un rumore che, pixel per pixel, dipende dal valore iniziale del pixel e da un epsilon che è generato da una distribuzione normale.
-  La formula da usare è quella di slide 8, dove gli alfa e i beta di t sono quelli definiti in slide 8 e slide 6.
-  Come vedete in slide 6 si spiega come si calcolano i beta: sostanzialmente dipendono da un alpha e un beta inziale che ci dicono quanto è il rumore all'inizio.
-  Poi i beta crescono (e di conseguenza il rumore) in maniera lineare rispetto a t. Sono stati provati altri andamenti (quadratico), ma io dire di usare quello di base lineare.
-  In pratica, voi dovete prendere un immagine e un t a caso e applicargli un rumore secondo formula a slide 8. Poi date l ímmagine rumorosa e il t in ingresso
-  alla rete che deve restituire il rumore. Calcolate il gradiente come un problema di regressione sul rumore.
-  </details>
-- magari usare rumore normalizzato
+- [x] nel diffusion abbassare il learning_rate a 1e-5
+  - risultato:
+- [x] aggiunto un peso alla kl divergence loss, sperando di migliorare l'addestramento del decoder
 
 ## Resurces
 
@@ -211,25 +208,3 @@ https://github.com/chainer/chainer-chemistry/blob/master/examples/qm9/qm9_datase
   - [Molecular Generation with QM9 dataset](https://github.com/keras-team/keras-io/blob/master/examples/generative/wgan-graphs.py)
   - [Implementation of Small Molecular Generation with TensorFlow](https://github.com/poloarol/small-molecules/tree/main)
   - [Another Implementation but with ZINC dataset](https://github.com/fork123aniket/Molecule-Graph-Generation/blob/main/batched_Molecule_Generation.py)
-
-## To do:
-
-- (forse) implementare un earlystopper per fermarsi quando dopo un tot di epoche la loss non cambia
-
-## Problemi dagli esperimenti:
-
-- La novelty risulta troppo bassa:
-  - Overfitting dei dati nel graphvae
-  - Problema nel codice del graphvae:
-    - Problema durante la generazione di molecole
-    - Problema nel training
-
-## meeting: 4/04
-
-- stampare le loss separate e vedere dove va
-  - plotting della loss sia sul training che nel validation
-- allenare con 2 distinti loss, prendere l'optimization solo sui parametri (quando istanzio l'optimization separo i 2 parametri)
-
-- [x] nel diffusion abbassare il learning_rate a 1e-5
-  - risultato:
-- [x] aggiunto un peso alla kl divergence loss, sperando di migliorare l'addestramento del decoder

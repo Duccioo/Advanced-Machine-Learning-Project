@@ -199,8 +199,8 @@ def validation(
                 smiles_pred.append(smile)
                 smiles_true.append(elem)
 
-        validity_percentage, _, _ = calc_metrics(smiles_true, smiles_pred)
-        return validity_percentage
+        unique_smiles_list, validity, uniqueness, novelty = calc_metrics(smiles_true, smiles_pred)
+        return validity
 
 
 def train(

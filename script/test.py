@@ -73,17 +73,11 @@ def test(
                 edges_medi_pred += n_one[idx_data]
                 edges_medi_true += data["num_edges"][idx_data]
 
-    validity_percentage, uniqueness_percentage, novelty_percentage = calc_metrics(smiles_true, smiles_pred)
+    unique_smiles_list, validity, uniqueness, novelty = calc_metrics(smiles_true, smiles_pred)
     edges_medi_pred = (edges_medi_pred / len(smiles_pred)).item()
     edges_medi_true = (edges_medi_true / len(smiles_true)).item()
 
-    return (
-        validity_percentage,
-        uniqueness_percentage,
-        novelty_percentage,
-        edges_medi_pred,
-        edges_medi_true,
-    )
+    return (unique_smiles_list, validity, uniqueness, novelty, edges_medi_pred, edges_medi_true)
 
 
 def arg_parse():
@@ -161,13 +155,21 @@ def treshold_search(
         "Novelty %",
         "Edges Medi pred",
         "Edges Medi true",
+        "Unique Smiles Generated List",
         "Data",
     ]
     print("------- TRESHOLD SEARCH -------")
     for t_adj in list_treshold_adj:
         for t_diag in list_treshold_diag:
             print("--- Testing Treshold Adj:", t_adj, "Treshold Diag:", t_diag)
-            validity, uniqueness, novelty, edges_pred, edges_true = test(
+            (
+                unique_smiles_list,
+                validity,
+                uniqueness,
+                novelty,
+                edges_pred,
+                edges_true,
+            ) = test(
                 model_vae,
                 test_dataset_loader,
                 latent_dimension,
@@ -194,10 +196,10 @@ def treshold_search(
                 novelty * 100,
                 edges_pred,
                 edges_true,
+                unique_smiles_list,
             ]
 
-            nome_file = f"test_result_{test_samples}.csv"
-
+            nome_file = f"test_result_{test_samples}_v2.csv"
             nome_file_path = os.path.join(folder_base, nome_file)
             write_csv(nome_file_path, header, results)
 
@@ -285,8 +287,8 @@ if __name__ == "__main__":
     device = args_parsed.device
 
     folder_base = "models"
-    graph_vae_num_samples = 5000
-    diffusion_num_samples = 50000
+    graph_vae_num_samples = 10000
+    diffusion_num_samples = 10 * graph_vae_num_samples
     experiment_model_vae_name = f"logs_GraphVAE_v2_{graph_vae_num_samples}"
     experiment_model_diffusion_name = f"logs_Diffusion_{diffusion_num_samples}_from_{graph_vae_num_samples}"
 
@@ -305,24 +307,17 @@ if __name__ == "__main__":
         num_examples = graph_vae_num_samples
 
     # LOAD DATASET QM9:
-    (
-        _,
-        _,
-        train_dataset_loader,
-        test_dataset_loader,
-        val_dataset_loader,
-        max_num_nodes,
-    ) = load_QM9(
+    (_, _, train_dataset_loader, _, val_dataset_loader, max_num_nodes) = load_QM9(
         hyperparams["max_num_nodes"],
         num_examples,
         batch_size,
-        dataset_split_list=(0, 1, 0.0),
+        dataset_split_list=(0.7, 0.0, 0.3),
     )
 
     max_num_edges = hyperparams["max_num_edges"]
 
     print("----------------" * 2)
-    print("Test set: {}".format(len(test_dataset_loader) * batch_size))
+    print("Test set: {}".format(len(train_dataset_loader) * batch_size))
     print("max num edges:", max_num_edges)
     print("max num nodes:", max_num_nodes)
     print("num edges features", hyperparams["num_edges_features"])
@@ -335,7 +330,7 @@ if __name__ == "__main__":
         model_diff=model_diffusion,
         list_treshold_adj=args_parsed.treshold_adj,
         list_treshold_diag=args_parsed.treshold_diag,
-        test_dataset_loader=test_dataset_loader,
+        test_dataset_loader=train_dataset_loader,
         latent_dimension=hyperparams["latent_dimension"],
         device=device,
         folder_base=(model_folder_vae_base if model_diffusion is None else model_folder_diff_base),
