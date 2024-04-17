@@ -311,7 +311,6 @@ def train(
 
     print(validation_saved)
 
-
     log_metrics(
         epochs,
         total_batch=len(train_loader),
@@ -331,9 +330,9 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     BATCH_SIZE = 128
-    NUM_EXAMPLES = 50000
+    NUM_EXAMPLES = 5000
     epochs = 150
-    learning_rate = 0.000005
+    learning_rate = 0.00001
     train_percentage = 0.7
     test_percentage = 0.0
     val_percentage = 0.3
